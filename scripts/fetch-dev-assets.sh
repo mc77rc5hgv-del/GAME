@@ -29,4 +29,8 @@ rm -rf .jumpy-upstream-tmp
 cp -r localization/ru assets/locales/ru-RU
 sed -i '/^locales:/a\  - ru-RU/locale.yaml' assets/locales/localization.yaml
 
+# Project preference: no ambient sea creatures / animated coral-like
+# decoration on the levels. See scripts/strip-decorative-critters.py.
+python3 scripts/strip-decorative-critters.py
+
 echo "Done. Remember: assets/ is for local baseline testing only, never for a shipped build."
