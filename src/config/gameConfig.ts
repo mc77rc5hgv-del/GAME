@@ -1,0 +1,42 @@
+export const GAME_CONFIG = {
+  WORLD_WIDTH: 1600,
+  WORLD_HEIGHT: 900,
+  BASE_WIDTH: 1280,
+  BASE_HEIGHT: 720,
+
+  ROUNDS_TO_WIN: 5,
+  ROUND_END_FREEZE_MS: 1400,
+  ROUND_END_SLOWMO_TIME_SCALE: 0.25,
+  ROUND_RESTART_DELAY_MS: 2600,
+
+  PLAYER_MAX_HP: 100,
+  WEAPON_INTERACT_RADIUS: 72,
+
+  CAMERA: {
+    MIN_ZOOM: 0.62,
+    MAX_ZOOM: 1.05,
+    ZOOM_SMOOTH: 0.06,
+    PAN_SMOOTH: 0.08,
+    PADDING: 260,
+    SHAKE_DURATION_MS: 260,
+  },
+
+  WEAPON_SPAWN: {
+    INTERVAL_MS: 8000,
+    INTERVAL_JITTER_MS: 3000,
+    TELEGRAPH_MS: 900,
+    MAX_ACTIVE_WEAPONS: 5,
+  },
+
+  // Matter.js collision categories (bit flags)
+  COLLISION: {
+    GROUND: 0x0001,
+    PLAYER: 0x0002,
+    WEAPON: 0x0004,
+    PROJECTILE: 0x0008,
+    DEBRIS: 0x0010,
+    SENSOR: 0x0020,
+  },
+} as const;
+
+export type GameConfigType = typeof GAME_CONFIG;

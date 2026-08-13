@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Physics Arena Prototype</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: #0a0a12;
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      #game-root {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      canvas {
+        outline: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game-root"></div>
+    <!--
+      Official Yandex Games SDK. When served from yandex.ru/games this
+      attaches window.YaGames. Outside that host (local dev, other hosting)
+      the request may 404/fail silently — src/platform/YandexSDK.ts detects
+      this and falls back to a safe mock so local dev is never blocked.
+    -->
+    <script src="https://yandex.ru/games/sdk/v2"></script>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
