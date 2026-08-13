@@ -1,0 +1,279 @@
+{
+  "format": "fishfolk/jumpy assets/elements/item replacement textures",
+  "style": "detailed industrial pixel-art",
+  "source_revision": "public fishfolk/jumpy main (inspection clone)",
+  "preserves": "canvas size, atlas tile size, rows, columns, alpha mode, frame centers; existing gameplay YAML unchanged",
+  "items": [
+    {
+      "old": "buss",
+      "new": "sawed_off",
+      "old_texture": "buss.png",
+      "new_texture": "sawed_off.png",
+      "canvas_size": [
+        65,
+        25
+      ],
+      "tile_size": [
+        62,
+        24
+      ],
+      "rows": 1,
+      "columns": 1,
+      "alpha": true,
+      "pivot_origin": "not stored in PNG/atlas; gameplay grab_offset and spawn offsets remain in original item YAML"
+    },
+    {
+      "old": "blunderbass",
+      "new": "combat_shotgun",
+      "old_texture": null,
+      "new_texture": "combat_shotgun.png",
+      "canvas_size": [
+        65,
+        25
+      ],
+      "tile_size": [
+        65,
+        25
+      ],
+      "rows": 1,
+      "columns": 1,
+      "alpha": true,
+      "pivot_origin": "not stored in PNG/atlas; gameplay grab_offset and spawn offsets remain in original item YAML",
+      "compatibility_note": "Current repository entry is a placeholder with no data/PNG/atlas. Supplied as historical 65x25 one-frame texture; integration requires activating item data."
+    },
+    {
+      "old": "musket",
+      "new": "heavy_rifle",
+      "old_texture": "musket.png",
+      "new_texture": "heavy_rifle.png",
+      "canvas_size": [
+        92,
+        32
+      ],
+      "tile_size": [
+        92,
+        32
+      ],
+      "rows": 1,
+      "columns": 1,
+      "alpha": true,
+      "pivot_origin": "not stored in PNG/atlas; gameplay grab_offset and spawn offsets remain in original item YAML"
+    },
+    {
+      "old": "sniper_rifle",
+      "new": "rail_rifle",
+      "old_texture": "sniper.png",
+      "new_texture": "rail_rifle.png",
+      "canvas_size": [
+        81,
+        25
+      ],
+      "tile_size": [
+        81,
+        25
+      ],
+      "rows": 1,
+      "columns": 1,
+      "alpha": true,
+      "pivot_origin": "not stored in PNG/atlas; gameplay grab_offset and spawn offsets remain in original item YAML"
+    },
+    {
+      "old": "machine_gun",
+      "new": "assault_rifle",
+      "old_texture": "machine_gun.png",
+      "new_texture": "assault_rifle.png",
+      "canvas_size": [
+        160,
+        48
+      ],
+      "tile_size": [
+        80,
+        24
+      ],
+      "rows": 2,
+      "columns": 2,
+      "alpha": true,
+      "pivot_origin": "not stored in PNG/atlas; gameplay grab_offset and spawn offsets remain in original item YAML"
+    },
+    {
+      "old": "cannon",
+      "new": "rocket_launcher",
+      "old_texture": "cannon.png",
+      "new_texture": "rocket_launcher.png",
+      "canvas_size": [
+        248,
+        42
+      ],
+      "tile_size": [
+        60,
+        42
+      ],
+      "rows": 1,
+      "columns": 4,
+      "alpha": true,
+      "pivot_origin": "not stored in PNG/atlas; gameplay grab_offset and spawn offsets remain in original item YAML"
+    },
+    {
+      "old": "grenade",
+      "new": "frag_grenade",
+      "old_texture": "grenade.png",
+      "new_texture": "frag_grenade.png",
+      "canvas_size": [
+        75,
+        104
+      ],
+      "tile_size": [
+        25,
+        52
+      ],
+      "rows": 2,
+      "columns": 3,
+      "alpha": true,
+      "pivot_origin": "not stored in PNG/atlas; gameplay grab_offset and spawn offsets remain in original item YAML"
+    },
+    {
+      "old": "kick_bomb",
+      "new": "explosive_canister",
+      "old_texture": "kick_bomb.png",
+      "new_texture": "explosive_canister.png",
+      "canvas_size": [
+        96,
+        126
+      ],
+      "tile_size": [
+        32,
+        63
+      ],
+      "rows": 2,
+      "columns": 3,
+      "alpha": true,
+      "pivot_origin": "not stored in PNG/atlas; gameplay grab_offset and spawn offsets remain in original item YAML"
+    },
+    {
+      "old": "cannonball",
+      "new": "plasma_core",
+      "old_texture": "cannonball.png",
+      "new_texture": "plasma_core.png",
+      "canvas_size": [
+        17,
+        17
+      ],
+      "tile_size": [
+        17,
+        17
+      ],
+      "rows": 1,
+      "columns": 1,
+      "alpha": true,
+      "pivot_origin": "not stored in PNG/atlas; gameplay grab_offset and spawn offsets remain in original item YAML"
+    },
+    {
+      "old": "mine",
+      "new": "proximity_mine",
+      "old_texture": "mine.png",
+      "new_texture": "proximity_mine.png",
+      "canvas_size": [
+        429,
+        35
+      ],
+      "tile_size": [
+        33,
+        35
+      ],
+      "rows": 1,
+      "columns": 13,
+      "alpha": true,
+      "pivot_origin": "not stored in PNG/atlas; gameplay grab_offset and spawn offsets remain in original item YAML"
+    },
+    {
+      "old": "jellyfish",
+      "new": "shock_drone",
+      "old_texture": "jellyfish.png",
+      "new_texture": "shock_drone.png",
+      "canvas_size": [
+        30,
+        78
+      ],
+      "tile_size": [
+        30,
+        39
+      ],
+      "rows": 1,
+      "columns": 1,
+      "alpha": true,
+      "pivot_origin": "not stored in PNG/atlas; gameplay grab_offset and spawn offsets remain in original item YAML"
+    },
+    {
+      "old": "sword",
+      "new": "shock_baton",
+      "old_texture": "sword.png",
+      "new_texture": "shock_baton.png",
+      "canvas_size": [
+        260,
+        279
+      ],
+      "tile_size": [
+        65,
+        93
+      ],
+      "rows": 4,
+      "columns": 4,
+      "alpha": true,
+      "pivot_origin": "not stored in PNG/atlas; gameplay grab_offset and spawn offsets remain in original item YAML"
+    },
+    {
+      "old": "stomp_boots",
+      "new": "impact_boots",
+      "old_texture": "stomp_boots.png",
+      "new_texture": "impact_boots.png",
+      "canvas_size": [
+        1344,
+        560
+      ],
+      "tile_size": [
+        96,
+        80
+      ],
+      "rows": 7,
+      "columns": 14,
+      "alpha": true,
+      "pivot_origin": "not stored in PNG/atlas; gameplay grab_offset and spawn offsets remain in original item YAML"
+    },
+    {
+      "old": "crate",
+      "new": "supply_case",
+      "old_texture": "crate.png",
+      "new_texture": "supply_case.png",
+      "canvas_size": [
+        36,
+        31
+      ],
+      "tile_size": [
+        36,
+        31
+      ],
+      "rows": 1,
+      "columns": 1,
+      "alpha": true,
+      "pivot_origin": "not stored in PNG/atlas; gameplay grab_offset and spawn offsets remain in original item YAML"
+    },
+    {
+      "old": "periscope",
+      "new": "tactical_scanner",
+      "old_texture": "periscope.png",
+      "new_texture": "tactical_scanner.png",
+      "canvas_size": [
+        49,
+        75
+      ],
+      "tile_size": [
+        50,
+        74
+      ],
+      "rows": 1,
+      "columns": 1,
+      "alpha": true,
+      "pivot_origin": "not stored in PNG/atlas; gameplay grab_offset and spawn offsets remain in original item YAML"
+    }
+  ]
+}

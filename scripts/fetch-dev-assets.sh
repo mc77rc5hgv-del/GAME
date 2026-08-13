@@ -33,4 +33,8 @@ sed -i '/^locales:/a\  - ru-RU/locale.yaml' assets/locales/localization.yaml
 # decoration on the levels. See scripts/strip-decorative-critters.py.
 python3 scripts/strip-decorative-critters.py
 
+# Project's own industrial weapon texture pack over 14 of Jumpy's weapons.
+# See scripts/apply-weapon-textures.sh.
+bash scripts/apply-weapon-textures.sh
+
 echo "Done. Remember: assets/ is for local baseline testing only, never for a shipped build."
