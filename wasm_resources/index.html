@@ -130,9 +130,89 @@
         });
       })();
     </script>
+    <!--
+      Yandex Games SDK. Loaded unconditionally; if this 404s or `YaGames`
+      never appears (e.g. running outside the Yandex iframe during local
+      development), everything below falls back gracefully.
+    -->
+    <script src="https://yandex.ru/games/sdk/v2"></script>
     <script type="module">
       import init from "./jumpy.js";
-      init();
+
+      // Requirement 2.14: language must come from
+      // ysdk.environment.i18n.lang, never navigator.language, with English
+      // as the only fallback.
+      const SUPPORTED_LANGS = ["ru", "en"];
+      const FALLBACK_LANG = "en";
+
+      function withTimeout(promise, ms) {
+        return Promise.race([
+          promise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Yandex SDK init timed out")), ms)),
+        ]);
+      }
+
+      async function resolveYandex() {
+        if (typeof YaGames === "undefined") {
+          return { ysdk: null, lang: FALLBACK_LANG };
+        }
+        try {
+          const ysdk = await withTimeout(YaGames.init(), 5000);
+          const raw = ysdk?.environment?.i18n?.lang;
+          const lang = SUPPORTED_LANGS.includes(raw) ? raw : FALLBACK_LANG;
+          return { ysdk, lang };
+        } catch (e) {
+          console.warn("Yandex SDK unavailable, falling back to", FALLBACK_LANG, e);
+          return { ysdk: null, lang: FALLBACK_LANG };
+        }
+      }
+
+      // Jumpy's own locale negotiation (bones_framework -> sys_locale) reads
+      // navigator.language/.languages directly and there's no hook to feed
+      // it a language any other way without patching that dependency. So
+      // the resolved Yandex language becomes what navigator reports -
+      // navigator.language itself is never the source of truth, only the
+      // transport once the real source (ysdk) has already been read.
+      function overrideNavigatorLanguage(lang) {
+        try {
+          const proto = Object.getPrototypeOf(navigator);
+          Object.defineProperty(proto, "language", { get: () => lang, configurable: true });
+          Object.defineProperty(proto, "languages", { get: () => [lang], configurable: true });
+        } catch (e) {
+          console.warn("Could not override navigator.language", e);
+        }
+      }
+
+      (async () => {
+        const { ysdk, lang } = await resolveYandex();
+        overrideNavigatorLanguage(lang);
+        window.__ysdk = ysdk;
+
+        // Defined *before* calling init() below: the wasm module can call
+        // window.__jumpyOnGameReady synchronously during its own startup,
+        // before this async function would otherwise get a chance to
+        // continue past `await init()`. Both handlers only need `ysdk`,
+        // already resolved above, so there's no need to wait for the wasm
+        // exports to define them.
+        window.__jumpyOnGameReady = () => {
+          ysdk?.features?.LoadingAPI?.ready();
+        };
+        // Called by src/yandex.rs whenever the `game` match session's
+        // active flag flips, so ads aren't scheduled mid-match.
+        window.__jumpyOnMatchActiveChanged = (active) => {
+          if (!ysdk?.features?.GameplayAPI) return;
+          if (active) ysdk.features.GameplayAPI.start();
+          else ysdk.features.GameplayAPI.stop();
+        };
+
+        const wasm = await init();
+
+        const setHidden = (hidden) => wasm.jumpy_set_tab_hidden(hidden);
+        document.addEventListener("visibilitychange", () => setHidden(document.hidden));
+        window.addEventListener("blur", () => setHidden(true));
+        window.addEventListener("focus", () => setHidden(false));
+      })();
+
       const ignoreCanvasContextMenu = () => {
         const canvases = document.getElementsByTagName('canvas');
         if (canvases[0]) {

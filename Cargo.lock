@@ -4343,6 +4343,7 @@ dependencies = [
  "thiserror 1.0.64",
  "tracing",
  "turborand",
+ "wasm-bindgen",
 ]
 
 [[package]]

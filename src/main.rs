@@ -19,6 +19,7 @@ pub mod fullscreen;
 pub mod input;
 pub mod mute;
 pub mod profiler;
+pub mod yandex;
 pub mod sessions;
 pub mod settings;
 pub mod ui;
@@ -159,6 +160,7 @@ fn main() {
         .install_plugin(audio::game_plugin)
         .install_plugin(settings::game_plugin)
         .install_plugin(fullscreen::game_plugin)
+        .install_plugin(yandex::game_plugin)
         .install_plugin(mute::game_plugin)
         .install_plugin(input::game_plugin)
         .install_plugin(core::game_plugin)

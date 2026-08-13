@@ -25,6 +25,7 @@ fn update_mute(game: &mut Game) {
     }
 
     let muted = game.shared_resource::<Muted>().0;
+    let tab_hidden = game.shared_resource::<crate::yandex::TabHidden>().0;
     let base_volume = {
         let storage = game.shared_resource::<Storage>();
         storage
@@ -33,5 +34,9 @@ fn update_mute(game: &mut Game) {
             .unwrap_or(1.0)
     };
     let mut audio_center = game.shared_resource_mut::<AudioCenter>();
-    audio_center.set_main_volume_scale(if muted { 0.0 } else { base_volume });
+    audio_center.set_main_volume_scale(if muted || tab_hidden {
+        0.0
+    } else {
+        base_volume
+    });
 }
