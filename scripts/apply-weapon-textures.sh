@@ -65,4 +65,15 @@ if [ -f "$icon_src" ] && [ -f "$icon_dst" ]; then
   echo "applied: stomp_boots icon"
 fi
 
+# The one deliberate atlas change in this pack: the Frag Grenade sheet is
+# authored at 2x Jumpy's tile size (50x104 instead of 25x52, same 2x3 grid)
+# because the original was too small to read on screen. Frame indices,
+# grid shape, colliders, fuse timing and throw physics are all unchanged -
+# only how large the sprite draws. Idempotent (matches the 25x52 line only).
+grenade_atlas="$ITEMS/grenade/grenade.atlas.yaml"
+if [ -f "$grenade_atlas" ]; then
+  sed -i 's/^tile_size: \[25, 52\]$/tile_size: [50, 104]/' "$grenade_atlas"
+  echo "applied: grenade atlas tile_size -> [50, 104]"
+fi
+
 echo "Done (Combat Shotgun skipped - see script header)."

@@ -584,7 +584,6 @@ pub fn player_collider_shape(meta: &PlayerMeta) -> ColliderShape {
 }
 
 fn hydrate_players(
-    mut commands: Commands,
     mut entities: ResMutInit<Entities>,
     game_meta: Root<GameMeta>,
     player_inputs: Res<MatchInputs>,
@@ -802,76 +801,11 @@ fn hydrate_players(
         if is_ai {
             ai_players.insert(player_entity, default());
 
-            // Give the player a sword NOTE: It's not good that we're duplicating the sword hydrate
-            // functionality here, and this is pretty hacky, but the AI as it stands is temporary
-            // anyway, so it's fine for now.
-            commands.add(
-                move |mut entities: ResMutInit<Entities>,
-                      mut swords: CompMut<sword::Sword>,
-                      mut element_handles: CompMut<ElementHandle>,
-                      assets: Res<AssetServer>,
-                      mut hydrated: CompMut<MapElementHydrated>,
-                      mut bodies: CompMut<KinematicBody>,
-                      mut atlas_sprites: CompMut<AtlasSprite>,
-                      mut items: CompMut<Item>,
-                      mut transforms: CompMut<Transform>,
-                      game_meta: Root<GameMeta>,
-                      mut attachments: CompMut<PlayerBodyAttachment>,
-                      mut inventories: CompMut<Inventory>| {
-                    let element_handle = game_meta
-                        .core
-                        .map_elements
-                        .iter()
-                        .find(|handle| {
-                            assets
-                                .get(assets.get(**handle).data)
-                                .try_cast_ref::<SwordMeta>()
-                                .is_ok()
-                        })
-                        .unwrap();
-                    let element_meta = assets.get(*element_handle);
-                    if let Ok(SwordMeta {
-                        atlas,
-                        body_size,
-                        can_rotate,
-                        bounciness,
-                        grab_offset,
-                        ..
-                    }) = assets.get(element_meta.data).try_cast_ref()
-                    {
-                        let sword_ent = entities.create();
-                        inventories.insert(player_entity, Inventory(Some(sword_ent)));
-                        items.insert(sword_ent, Item);
-                        swords.insert(sword_ent, sword::Sword::default());
-                        atlas_sprites.insert(sword_ent, AtlasSprite::new(*atlas));
-                        transforms.insert(sword_ent, default());
-                        element_handles.insert(sword_ent, ElementHandle(*element_handle));
-                        hydrated.insert(sword_ent, MapElementHydrated);
-                        bodies.insert(
-                            sword_ent,
-                            KinematicBody {
-                                shape: ColliderShape::Rectangle { size: *body_size },
-                                has_mass: true,
-                                has_friction: true,
-                                can_rotate: *can_rotate,
-                                bounciness: *bounciness,
-                                gravity: game_meta.core.physics.gravity,
-                                ..default()
-                            },
-                        );
-                        attachments.insert(
-                            sword_ent,
-                            PlayerBodyAttachment {
-                                sync_color: false,
-                                sync_animation: false,
-                                player: player_entity,
-                                head: false,
-                                offset: grab_offset.extend(1.0),
-                            },
-                        );
-                    }
-                },
-            );
+            // Upstream Jumpy handed every AI player a sword here, at spawn, by
+            // duplicating the sword's hydrate logic inline. Removed: AI players
+            // now start empty-handed and have to pick weapons up off the map
+            // like human players do. Their inventory is left at the `default()`
+            // (empty) inserted above with the other shared player components.
         }
     }
 
