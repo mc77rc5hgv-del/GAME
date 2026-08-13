@@ -127,18 +127,80 @@ export class GameScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.cleanup, this);
   }
 
+  /**
+   * Non-physics environment, back to front. Each layer scrolls slower than
+   * gameplay (lower scrollFactor = farther away) for a simple parallax depth
+   * cue, and none of it ever collides with anything - purely presentation.
+   */
   private drawBackdrop(): void {
-    const g = this.add.graphics().setDepth(-10).setScrollFactor(0.3);
-    g.fillStyle(0x1c1830, 1);
-    g.fillRect(-2000, -2000, GAME_CONFIG.WORLD_WIDTH + 4000, GAME_CONFIG.WORLD_HEIGHT + 4000);
-    for (let i = 0; i < 40; i++) {
-      g.fillStyle(0x2a2440, 1);
-      g.fillCircle(
-        Phaser.Math.Between(-500, GAME_CONFIG.WORLD_WIDTH + 500),
-        Phaser.Math.Between(-500, GAME_CONFIG.WORLD_HEIGHT + 200),
-        Phaser.Math.Between(1, 3)
-      );
+    const marginX = 1200;
+    const left = -marginX;
+    const right = GAME_CONFIG.WORLD_WIDTH + marginX;
+    const top = -1400;
+    const bottom = GAME_CONFIG.WORLD_HEIGHT + 400;
+    const horizon = 600;
+
+    // Sky: a soft vertical gradient, almost static (deep background).
+    const sky = this.add.graphics().setDepth(-30).setScrollFactor(0.04);
+    sky.fillGradientStyle(0x241f3d, 0x241f3d, 0x120f20, 0x14101d, 1);
+    sky.fillRect(left, top, right - left, bottom - top);
+
+    // Distant stars/embers drifting very slowly.
+    const stars = this.add.graphics().setDepth(-29).setScrollFactor(0.06);
+    for (let i = 0; i < 50; i++) {
+      stars.fillStyle(Phaser.Utils.Array.GetRandom([0x4a4470, 0x5a4f7a, 0x3a3560]), 1);
+      stars.fillCircle(Phaser.Math.Between(left, right), Phaser.Math.Between(top, horizon), Phaser.Math.Between(1, 2));
     }
+
+    // Far skyline silhouette - simple procedural block towers.
+    const far = this.add.graphics().setDepth(-25).setScrollFactor(0.14);
+    far.fillStyle(0x1c1930, 1);
+    let bx = left;
+    while (bx < right) {
+      const bw = Phaser.Math.Between(70, 160);
+      const bh = Phaser.Math.Between(90, 260);
+      far.fillRect(bx, horizon - bh, bw, bh + 400);
+      bx += bw + Phaser.Math.Between(10, 40);
+    }
+    // A handful of lit windows for texture.
+    far.fillStyle(0x3a3560, 0.7);
+    for (let i = 0; i < 30; i++) {
+      far.fillRect(Phaser.Math.Between(left, right), Phaser.Math.Between(horizon - 220, horizon - 20), 3, 5);
+    }
+
+    // Nearer skyline band - taller, darker, slightly faster parallax.
+    const near = this.add.graphics().setDepth(-20).setScrollFactor(0.24);
+    near.fillStyle(0x171429, 1);
+    bx = left + 40;
+    while (bx < right) {
+      const bw = Phaser.Math.Between(100, 220);
+      const bh = Phaser.Math.Between(140, 320);
+      near.fillRect(bx, horizon - bh, bw, bh + 400);
+      bx += bw + Phaser.Math.Between(30, 80);
+    }
+
+    // Midground industrial silhouettes (crane, girders) for closer depth.
+    const mid = this.add.graphics().setDepth(-15).setScrollFactor(0.38);
+    mid.fillStyle(0x121022, 1);
+    mid.fillRect(220, horizon - 40, 14, 260);
+    mid.fillRect(220, horizon - 40, 220, 12);
+    mid.fillRect(410, horizon - 40, 14, 120);
+    mid.fillRect(GAME_CONFIG.WORLD_WIDTH - 260, horizon - 60, 16, 280);
+    mid.fillRect(GAME_CONFIG.WORLD_WIDTH - 420, horizon - 60, 176, 14);
+    mid.fillTriangle(
+      GAME_CONFIG.WORLD_WIDTH - 60,
+      horizon - 60,
+      GAME_CONFIG.WORLD_WIDTH - 140,
+      horizon - 60,
+      GAME_CONFIG.WORLD_WIDTH - 100,
+      horizon - 160
+    );
+
+    // Ground haze just above/around the arena so the platforms don't float
+    // in a hard-edged void.
+    const haze = this.add.graphics().setDepth(-5).setScrollFactor(0.6);
+    haze.fillStyle(0x1a1628, 0.5);
+    haze.fillRect(left, horizon + 60, right - left, bottom - horizon - 60);
   }
 
   setExternalPause(paused: boolean): void {
@@ -289,11 +351,13 @@ export class GameScene extends Phaser.Scene {
     const midY = (p1.y + p2.y) / 2;
     const dist = Phaser.Math.Distance.Between(p1.x, p1.y, p2.x, p2.y);
 
-    const targetZoom = Phaser.Math.Clamp(
-      (GAME_CONFIG.BASE_WIDTH - GAME_CONFIG.CAMERA.PADDING) / Math.max(dist, 260),
-      GAME_CONFIG.CAMERA.MIN_ZOOM,
-      GAME_CONFIG.CAMERA.MAX_ZOOM
+    const cameraCfg = GAME_CONFIG.CAMERA;
+    const distRatio = Phaser.Math.Clamp(
+      (dist - cameraCfg.CLOSE_DIST) / (cameraCfg.FAR_DIST - cameraCfg.CLOSE_DIST),
+      0,
+      1
     );
+    const targetZoom = Phaser.Math.Linear(cameraCfg.MAX_ZOOM, cameraCfg.MIN_ZOOM, distRatio);
 
     this.camZoom = Phaser.Math.Linear(this.camZoom, targetZoom, GAME_CONFIG.CAMERA.ZOOM_SMOOTH);
     this.camCenterX = Phaser.Math.Linear(this.camCenterX, midX, GAME_CONFIG.CAMERA.PAN_SMOOTH);

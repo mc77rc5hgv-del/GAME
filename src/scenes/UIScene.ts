@@ -2,7 +2,11 @@ import Phaser from 'phaser';
 import { GAME_CONFIG } from '../config/gameConfig';
 import { WEAPONS } from '../config/weapons';
 import { t, getLang } from '../localization';
+import { scaleDisplayToHeight } from '../utils/physicsUtils';
 import type { HeldWeaponState } from '../entities/Player';
+
+const HP_BAR_WIDTH = 132;
+const PORTRAIT_SIZE = 42;
 
 interface HudPayload {
   p1: { hp: number; weapon: HeldWeaponState | null; alive: boolean };
@@ -45,34 +49,24 @@ export class UIScene extends Phaser.Scene {
     const locale = t();
     const w = this.scale.width;
 
-    this.add.rectangle(0, 0, 240, 74, 0x0a0a12, 0.55).setOrigin(0, 0).setPosition(16, 14);
-    this.add.rectangle(0, 0, 240, 74, 0x0a0a12, 0.55).setOrigin(1, 0).setPosition(w - 16, 14);
+    this.p1HpBar = this.buildPlayerPanel(1, 14, locale.menu.player1, '#4fc3f7', 0x4fc3f7);
+    this.p2HpBar = this.buildPlayerPanel(2, w - 14, locale.menu.player2, '#ff6b6b', 0xff6b6b);
 
-    this.add.text(24, 20, locale.menu.player1, { fontFamily: 'monospace', fontSize: '14px', color: '#4fc3f7' });
-    this.add.rectangle(24, 40, 200, 14, 0x2a2440).setOrigin(0, 0);
-    this.p1HpBar = this.add.rectangle(24, 40, 200, 14, 0x4fc3f7).setOrigin(0, 0);
-    this.p1WeaponText = this.add.text(24, 58, '', { fontFamily: 'monospace', fontSize: '13px', color: '#d8d4ea' });
-
-    this.add
-      .text(w - 24, 20, locale.menu.player2, { fontFamily: 'monospace', fontSize: '14px', color: '#ff6b6b' })
-      .setOrigin(1, 0);
-    this.add.rectangle(w - 24, 40, 200, 14, 0x2a2440).setOrigin(1, 0);
-    this.p2HpBar = this.add.rectangle(w - 24, 40, 200, 14, 0xff6b6b).setOrigin(1, 0);
-    this.p2WeaponText = this.add
-      .text(w - 24, 58, '', { fontFamily: 'monospace', fontSize: '13px', color: '#d8d4ea' })
-      .setOrigin(1, 0);
-
-    const crownP1 = this.add.image(w / 2 - 62, 30, 'icon_crown_p1').setOrigin(1, 0.5);
-    crownP1.setDisplaySize((crownP1.width / crownP1.height) * 22, 22);
-    const crownP2 = this.add.image(w / 2 + 62, 30, 'icon_crown_p2').setOrigin(0, 0.5);
-    crownP2.setDisplaySize((crownP2.width / crownP2.height) * 22, 22);
+    // Score sits in its own small pill, low enough to clear the corner panels.
+    const scorePill = this.add.graphics();
+    scorePill.fillStyle(0x0a0a12, 0.55);
+    scorePill.fillRoundedRect(w / 2 - 84, 10, 168, 34, 17);
+    const crownP1 = this.add.image(w / 2 - 46, 27, 'icon_crown_p1').setOrigin(1, 0.5);
+    crownP1.setDisplaySize((crownP1.width / crownP1.height) * 18, 18);
+    const crownP2 = this.add.image(w / 2 + 46, 27, 'icon_crown_p2').setOrigin(0, 0.5);
+    crownP2.setDisplaySize((crownP2.width / crownP2.height) * 18, 18);
 
     this.scoreText = this.add
-      .text(w / 2, 20, '', { fontFamily: 'monospace', fontSize: '20px', color: '#ffe066', fontStyle: 'bold' })
-      .setOrigin(0.5, 0);
+      .text(w / 2, 27, '', { fontFamily: 'monospace', fontSize: '18px', color: '#ffe066', fontStyle: 'bold' })
+      .setOrigin(0.5);
 
     this.muteHint = this.add
-      .text(w / 2, 50, '', { fontFamily: 'monospace', fontSize: '13px', color: '#8a83a8' })
+      .text(w / 2, 52, '', { fontFamily: 'monospace', fontSize: '13px', color: '#8a83a8' })
       .setOrigin(0.5, 0);
 
     this.debugText = this.add
@@ -114,8 +108,8 @@ export class UIScene extends Phaser.Scene {
   private onHudUpdate = (payload: HudPayload): void => {
     const hpRatio1 = Phaser.Math.Clamp(payload.p1.hp / GAME_CONFIG.PLAYER_MAX_HP, 0, 1);
     const hpRatio2 = Phaser.Math.Clamp(payload.p2.hp / GAME_CONFIG.PLAYER_MAX_HP, 0, 1);
-    this.p1HpBar.width = 200 * hpRatio1;
-    this.p2HpBar.width = 200 * hpRatio2;
+    this.p1HpBar.width = HP_BAR_WIDTH * hpRatio1;
+    this.p2HpBar.width = HP_BAR_WIDTH * hpRatio2;
 
     this.p1WeaponText.setText(this.weaponLine(payload.p1.weapon));
     this.p2WeaponText.setText(this.weaponLine(payload.p2.weapon));
@@ -129,6 +123,69 @@ export class UIScene extends Phaser.Scene {
     const def = WEAPONS[weapon.type];
     const name = getLang() === 'ru' ? def.displayName.ru : def.displayName.en;
     return `${name}  ${weapon.ammo}/${def.maxAmmo}`;
+  }
+
+  /**
+   * Compact arcade panel: a small portrait chip (the character's own idle
+   * art, not a generic icon) + name + a slim HP bar + weapon/ammo line, all
+   * inside one small rounded pill instead of the old large black rectangle.
+   * `side` mirrors the whole layout so P2's panel reads right-to-left,
+   * portrait hugging the screen edge on both sides.
+   */
+  private buildPlayerPanel(
+    playerIndex: 1 | 2,
+    edgeX: number,
+    name: string,
+    colorCss: string,
+    colorHex: number
+  ): Phaser.GameObjects.Rectangle {
+    const side: 'left' | 'right' = playerIndex === 1 ? 'left' : 'right';
+    const panelW = 208;
+    const panelH = 52;
+    const panelX = side === 'left' ? edgeX : edgeX - panelW;
+    const portraitCX = side === 'left' ? panelX + 30 : panelX + panelW - 30;
+    const barInnerX = side === 'left' ? portraitCX + 30 : portraitCX - 30;
+
+    const bg = this.add.graphics();
+    bg.fillStyle(0x0a0a12, 0.5);
+    bg.fillRoundedRect(panelX, 10, panelW, panelH, 14);
+    bg.lineStyle(1.5, colorHex, 0.5);
+    bg.strokeRoundedRect(panelX, 10, panelW, panelH, 14);
+
+    const portraitR = PORTRAIT_SIZE / 2 + 3;
+    const portraitBg = this.add.circle(portraitCX, 36, portraitR, colorHex, 0.18);
+    portraitBg.setStrokeStyle(2, colorHex, 0.8);
+
+    const portrait = this.add.image(portraitCX, 40, `player${playerIndex}_idle`);
+    scaleDisplayToHeight(portrait, PORTRAIT_SIZE);
+    const maskShape = this.make.graphics({});
+    maskShape.fillStyle(0xffffff);
+    maskShape.fillCircle(portraitCX, 36, portraitR - 1);
+    portrait.setMask(maskShape.createGeometryMask());
+
+    this.add
+      .text(portraitCX, 10 + panelH + 4, name, { fontFamily: 'monospace', fontSize: '11px', color: colorCss })
+      .setOrigin(0.5, 0)
+      .setAlpha(0.85);
+
+    const barOriginX = side === 'left' ? barInnerX : barInnerX - HP_BAR_WIDTH;
+    this.add.rectangle(barOriginX, 24, HP_BAR_WIDTH, 10, 0x2a2440).setOrigin(0, 0.5);
+    const hpBar = this.add
+      .rectangle(side === 'left' ? barInnerX : barInnerX, 24, HP_BAR_WIDTH, 10, colorHex)
+      .setOrigin(side === 'left' ? 0 : 1, 0.5);
+
+    const weaponText = this.add
+      .text(side === 'left' ? barInnerX : barInnerX, 34, '', {
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        color: '#d8d4ea',
+      })
+      .setOrigin(side === 'left' ? 0 : 1, 0);
+
+    if (playerIndex === 1) this.p1WeaponText = weaponText;
+    else this.p2WeaponText = weaponText;
+
+    return hpBar;
   }
 
   private buildRoundBanner(): Phaser.GameObjects.Container {

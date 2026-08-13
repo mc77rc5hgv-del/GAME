@@ -13,11 +13,16 @@ export const GAME_CONFIG = {
   WEAPON_INTERACT_RADIUS: 72,
 
   CAMERA: {
-    MIN_ZOOM: 0.62,
-    MAX_ZOOM: 1.05,
+    // Zoom is a lerp between MAX_ZOOM (at CLOSE_DIST or nearer) and MIN_ZOOM
+    // (at FAR_DIST or farther) based on the distance between the two
+    // players, so a normal fight stays close and prominent instead of
+    // reading as two small sprites lost in empty space.
+    MIN_ZOOM: 0.78,
+    MAX_ZOOM: 1.85,
+    CLOSE_DIST: 180,
+    FAR_DIST: 1500,
     ZOOM_SMOOTH: 0.06,
     PAN_SMOOTH: 0.08,
-    PADDING: 260,
     SHAKE_DURATION_MS: 260,
   },
 

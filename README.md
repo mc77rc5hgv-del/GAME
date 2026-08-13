@@ -151,11 +151,11 @@ arbitrary "knockback speed".
 
 ## Art
 
-Real texture pack (`public/assets/`) — characters, weapons, projectiles,
-explosion/smoke/muzzle flipbooks, destructible-tile damage states, and a few
-HUD icons. Loaded in `BootScene.preload()` and referenced by texture key
-everywhere else, so entities/systems don't know or care that the art used to
-be procedural.
+Real texture pack (`public/assets/`) — characters (9 poses × 2 palettes),
+weapons, projectiles, explosion/smoke/muzzle/trail effects, destructible-tile
+damage states, and a few HUD icons. Loaded in `BootScene.preload()` and
+referenced by texture key everywhere else, so entities/systems don't know or
+care that the art used to be procedural.
 
 A few notes for whoever touches this next:
 
@@ -163,20 +163,41 @@ A few notes for whoever touches this next:
   frames — see `docs/asset-pipeline.md` for how each sprite was extracted
   (connected-component detection + manual crop regions) and reproduce it
   the same way if the pack gets regenerated.
-- Character art is intentionally kept as a single idle frame per player
-  (`characters/player1_idle.png` / `player2_idle.png`) with a soft painted
-  vignette behind it that blends into the arena's dark background — no
-  animation state machine exists yet, so `Player` still renders one static
-  texture the way it always has. The source sheet has run/jump/aim/hit/death
-  poses ready to go whenever an animation pass happens.
-- Visual size and physics-body size are independent on purpose (see
-  `scaleDisplayToWidth/Height/Fit` in `utils/physicsUtils.ts`): art is
-  drawn larger than its in-game footprint for a crisper look, and each
-  entity scales its *display* size from the actual loaded texture at
-  runtime rather than assuming a fixed source resolution.
-- Explosion sparks and the screen flash are still simple tweened shapes, not
-  art assets — cheap, and they layer fine on top of the real explosion
-  flipbook.
+- **Visual size and physics-body size are fully decoupled.** `Player`'s
+  Matter sprite (the actual collision body, sized by `PLAYER_WIDTH/HEIGHT`)
+  stays invisible; a separate `visualSprite` Image renders the real art,
+  origin-anchored bottom-center and positioned at the body's feet line every
+  frame. That's what lets the character read much larger on screen
+  (`PLAYER_SPRITE_HEIGHT`) than the hitbox without touching movement feel,
+  and why swapping poses never shifts the feet (only the point above them
+  moves). The same pattern (`scaleDisplayToWidth/Height/Fit` in
+  `utils/physicsUtils.ts`) sizes weapons, projectiles and debris from
+  whatever their actual loaded texture is, independent of their physics
+  bodies.
+- **Character animation is a small state machine** (`Player.updateAnimState`)
+  driven entirely by real physics state, not timers: `hit` when stunned from
+  knockback, `jump`/`fall` from `velocity.y`, `crouch` from grounded+down,
+  `run` from grounded horizontal speed (cycling `run_0/1/2`), `idle`
+  otherwise, `knockout` once eliminated (see `RoundManager.checkDeaths` →
+  `Player.markEliminated`, which keeps the loser visible lying down through
+  the round-end freeze instead of just vanishing).
+- **Weapon attachment is per-weapon-type**, not one shared formula: each
+  entry in `WEAPONS` carries its own `attachment` (`offsetX/Y`,
+  `displayWidth`, `muzzleOffsetX/Y`, `rotation`), tuned by eye against the
+  character art at facing = 1. `Player` mirrors every X offset and the
+  rotation sign automatically for facing = -1 - only the right-facing
+  numbers are ever specified.
+- **The arena is one visual slab per platform**, not one sprite per physics
+  tile (`DestructionSystem`). Individual tile art only appears once a
+  specific cell is actually damaged; a destroyed cell punches a real hole
+  through the slab. The physics side is unchanged - still one static body
+  per `TILE_SIZE` cell.
+- Background/midground/foreground are procedural parallax layers
+  (`GameScene.drawBackdrop`, several `scrollFactor`-staggered `Graphics`
+  layers) - no environment art was in the pack, so this is geometry, not
+  images.
+- Contact shadows (`Player`'s `shadow`, `WeaponPickup`'s `shadow`) are plain
+  soft ellipses, not art - cheap and they track their owner every frame.
 
 ## Audio
 
@@ -260,13 +281,14 @@ in isolation:
 Everything else (physics feel, collisions, rendering) was verified by
 running the actual game end-to-end in a real browser (movement, jump,
 gravity, camera framing, weapon spawn/pickup/fire/throw, damage, knockback,
-round death/restart, scoring, pause, debug overlay).
+round death/restart, scoring, pause, debug overlay, animation state
+transitions, muzzle/projectile alignment per weapon and per facing
+direction, destructible-platform visuals).
 
 ## Known limitations (stage 1)
 
-- Characters render as a single static idle frame — the source art has full
-  run/jump/aim/hit/death pose sets (see `docs/asset-pipeline.md`), but no
-  animation state machine consumes them yet.
+- Run cycle uses 3 frames (not a full walk-cycle sheet); serviceable at
+  arcade speed and scale, would benefit from more in-betweens later.
 - No bundled audio assets yet (see [Audio](#audio)) — SFX/music are
   synthesized.
 - Single arena layout; no map selection.

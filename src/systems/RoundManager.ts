@@ -62,6 +62,7 @@ export class RoundManager extends Phaser.Events.EventEmitter {
         player.y > this.bounds.killY || player.x < this.bounds.minX || player.x > this.bounds.maxX;
       if (player.health <= 0 || outOfBounds) {
         const winner: 1 | 2 = player.playerIndex === 1 ? 2 : 1;
+        player.markEliminated();
         this.endRound(winner, players.find((p) => p !== player)!);
         return;
       }

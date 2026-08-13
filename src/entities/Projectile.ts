@@ -14,6 +14,7 @@ export class Projectile extends Phaser.Physics.Matter.Sprite {
   isExplosive: boolean;
   spawnedAt: number;
   exploded = false;
+  lastTrailAt = 0;
   private gravityScale = 0;
 
   constructor(

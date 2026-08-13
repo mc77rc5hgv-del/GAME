@@ -55,15 +55,20 @@ a2 = np.where(alpha <= 40, 0, alpha / 255.0) ** 2.2
 `gamma > 1` pushes low-to-mid alpha down aggressively while barely touching
 near-opaque pixels, which tightens the vignette into a much softer glow
 without visibly clipping the character's own edges. Applied, then re-cropped
-to the tightened alpha's bounding box (`characters/player1_idle.png` /
-`player2_idle.png`).
+to the tightened alpha's bounding box.
 
-Only the idle pose was extracted for both players - see the "Art" section of
-the main README for why (no animation system consumes the run/jump/aim/hit/
-death poses yet, so extracting and cleaning 19 more frames per character
-wasn't worth doing speculatively). The rest of each pose row is still on the
-original sheet if a future animation pass wants it; same two techniques
-(grid-read coordinates, tighten-alpha, re-crop) apply per frame.
+Nine poses were extracted per player this way - `idle`, `run_0/1/2`, `jump`,
+`fall`, `crouch`, `hit`, `knockout` - all from the same top row of each
+character's sheet (the row without a weapon baked into the pose; the second
+row duplicates every pose holding a generic gun, which would double up with
+the game's own weapon-attachment sprite, so it's unused). Column x-ranges
+were read once off a pixel-coordinate grid overlaid on the sheet and reused
+verbatim for player 2 (both sheets share the exact same layout). See
+`extract_poses.py` in the offline extraction scratch dir (not part of this
+repo) for the exact crop boxes if the pack is regenerated - the short
+version: idle x5-95, run x275-538 (3 equal columns), jump x700-790,
+fall x790-878, crouch x945-1040, hit x1118-1195, knockout x1332-1428, all
+relative to each sheet's own (0,0).
 
 ## Mapping to `public/assets/`
 
@@ -77,4 +82,4 @@ original sheet if a future animation pass wants it; same two techniques
 | 3 debris pieces (rock/wood/brick) | `effects/debris_0/1/2.png` | picked at random per destroyed tile |
 | normal/cracked/broken tile | `arena/tile_normal.png`, `tile_cracked.png`, `tile_broken.png` | swapped by `DestructionSystem` based on remaining tile HP |
 | crown/star/flag ×2, skull | `hud/icon_*.png` | crown pair wired into the score HUD; the rest are extracted but not wired into a UI element yet |
-| player idle ×2 | `characters/player1_idle.png`, `player2_idle.png` | see above |
+| 9 poses × 2 players | `characters/player<N>_<pose>.png` | `idle`, `run_0/1/2`, `jump`, `fall`, `crouch`, `hit`, `knockout` - see above |

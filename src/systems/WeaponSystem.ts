@@ -142,6 +142,7 @@ export class WeaponSystem {
       player.takeDamage(projectile.damage);
       player.applyKnockback(dirX * projectile.knockback, -projectile.knockback * 0.35);
       this.audio.play('hit');
+      this.spawnImpact(projectile.x, projectile.y, 0xff5555);
     }
     this.removeProjectile(projectile);
   }
@@ -150,8 +151,29 @@ export class WeaponSystem {
     if (projectile.exploded || !this.projectiles.includes(projectile)) return;
     if (projectile.isExplosive) {
       this.explode(projectile);
+    } else {
+      this.spawnImpact(projectile.x, projectile.y, 0xd8d4ea);
     }
     this.removeProjectile(projectile);
+  }
+
+  /** Small non-explosive hit burst - bullets/pellets hitting flesh or stone. */
+  private spawnImpact(x: number, y: number, color: number): void {
+    for (let i = 0; i < 5; i++) {
+      const angle = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      const speed = Phaser.Math.FloatBetween(30, 90);
+      const spark = this.scene.add.circle(x, y, Phaser.Math.Between(1, 3), color);
+      spark.setDepth(20);
+      this.scene.tweens.add({
+        targets: spark,
+        x: x + Math.cos(angle) * speed,
+        y: y + Math.sin(angle) * speed,
+        alpha: 0,
+        duration: Phaser.Math.Between(120, 220),
+        ease: 'Cubic.Out',
+        onComplete: () => spark.destroy(),
+      });
+    }
   }
 
   private explode(projectile: Projectile): void {
@@ -196,10 +218,31 @@ export class WeaponSystem {
       if (!projectile.body) continue;
       projectile.applyCustomGravity(worldGravityY);
       projectile.syncRotationToVelocity();
+      if (projectile.isExplosive && time - projectile.lastTrailAt > 45) {
+        projectile.lastTrailAt = time;
+        this.spawnTrailPuff(projectile);
+      }
       if (time - projectile.spawnedAt > 4500) {
         this.removeProjectile(projectile);
       }
     }
+
+    for (const weapon of this.weaponsOnField) {
+      weapon.syncShadow();
+    }
+  }
+
+  /** Faint fading smoke puff left behind rockets/grenades in flight. */
+  private spawnTrailPuff(projectile: Projectile): void {
+    const puff = this.scene.add.circle(projectile.x, projectile.y, Phaser.Math.Between(3, 6), 0x8a8296, 0.4);
+    puff.setDepth(5);
+    this.scene.tweens.add({
+      targets: puff,
+      scale: 2.2,
+      alpha: 0,
+      duration: 380,
+      onComplete: () => puff.destroy(),
+    });
   }
 
   clear(): void {

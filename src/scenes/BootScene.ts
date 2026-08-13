@@ -1,10 +1,10 @@
 import Phaser from 'phaser';
 import { t } from '../localization';
 
-const CHARACTERS: [string, string][] = [
-  ['player1', 'assets/characters/player1_idle.png'],
-  ['player2', 'assets/characters/player2_idle.png'],
-];
+const POSES = ['idle', 'run_0', 'run_1', 'run_2', 'jump', 'fall', 'crouch', 'hit', 'knockout'];
+const CHARACTERS: [string, string][] = ([1, 2] as const).flatMap((p) =>
+  POSES.map((pose): [string, string] => [`player${p}_${pose}`, `assets/characters/player${p}_${pose}.png`])
+);
 
 const WEAPONS_ART: [string, string][] = [
   ['weapon_pistol', 'assets/weapons/weapon_pistol.png'],

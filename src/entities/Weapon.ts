@@ -16,6 +16,7 @@ export class WeaponPickup extends Phaser.Physics.Matter.Sprite {
   thrownByPlayerIndex: 1 | 2 | null = null;
   thrownAt = 0;
   spawnedAt: number;
+  private shadow: Phaser.GameObjects.Ellipse;
 
   constructor(scene: Phaser.Scene, x: number, y: number, weaponType: WeaponType, ammo: number) {
     super(scene.matter.world, x, y, `weapon_${weaponType}`, undefined, {
@@ -40,6 +41,14 @@ export class WeaponPickup extends Phaser.Physics.Matter.Sprite {
     ]);
     this.setDepth(5);
     scaleDisplayToWidth(this, def.size.width * 1.8);
+
+    this.shadow = scene.add.ellipse(x, y, def.size.width * 1.3, 6, 0x000000, 0.3);
+    this.shadow.setDepth(2);
+  }
+
+  /** Keeps the ground shadow under the weapon as it slides/bounces. */
+  syncShadow(): void {
+    this.shadow.setPosition(this.x, this.y + 10);
   }
 
   markThrown(byPlayerIndex: 1 | 2): void {
@@ -51,5 +60,10 @@ export class WeaponPickup extends Phaser.Physics.Matter.Sprite {
   canHit(playerIndex: 1 | 2): boolean {
     if (this.thrownByPlayerIndex !== playerIndex) return true;
     return this.scene.time.now - this.thrownAt > 220;
+  }
+
+  destroy(fromScene?: boolean): void {
+    this.shadow.destroy();
+    super.destroy(fromScene);
   }
 }
