@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Fetches Fish Folk: Jumpy's own game assets (assets/) into a LOCAL,
-# gitignored directory for baseline development testing only.
+# gitignored directory for baseline development testing only, then
+# re-applies this project's local overlays on top (RU locale, critter
+# removal, industrial weapon textures).
 #
 # These assets are Copyright (c) 2020-2024 The Fish Folk Game & Spicy
 # Lobster Developers, licensed CC BY-NC 4.0 (non-commercial). They must
@@ -13,28 +15,36 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 if [ -d assets ]; then
-  echo "assets/ already exists locally, nothing to do."
-  exit 0
+  echo "assets/ already exists locally - skipping the base fetch, re-applying local overlays only."
+else
+  REF="${1:-main}"
+  echo "Fetching Jumpy's dev-only assets (ref: $REF) into ./assets (gitignored, non-commercial use only)..."
+  git clone --depth 1 --branch "$REF" https://github.com/fishfolk/jumpy.git .jumpy-upstream-tmp
+  mv .jumpy-upstream-tmp/assets ./assets
+  rm -rf .jumpy-upstream-tmp
 fi
-
-REF="${1:-main}"
-echo "Fetching Jumpy's dev-only assets (ref: $REF) into ./assets (gitignored, non-commercial use only)..."
-git clone --depth 1 --branch "$REF" https://github.com/fishfolk/jumpy.git .jumpy-upstream-tmp
-mv .jumpy-upstream-tmp/assets ./assets
-rm -rf .jumpy-upstream-tmp
 
 # Overlay this project's own (original, committed) Russian localization as
 # an additional locale, so the Yandex language bridge has something real to
 # switch to locally. Additive only - Jumpy's own en-US/fr-FR are untouched.
-cp -r localization/ru assets/locales/ru-RU
-sed -i '/^locales:/a\  - ru-RU/locale.yaml' assets/locales/localization.yaml
+# Idempotent: safe to re-run even if already applied.
+if [ ! -d assets/locales/ru-RU ]; then
+  cp -r localization/ru assets/locales/ru-RU
+  sed -i '/^locales:/a\  - ru-RU/locale.yaml' assets/locales/localization.yaml
+fi
 
 # Project preference: no ambient sea creatures / animated coral-like
-# decoration on the levels. See scripts/strip-decorative-critters.py.
-python3 scripts/strip-decorative-critters.py
+# decoration on the levels. Pure awk (no python3 dependency - Windows Git
+# Bash users often only have a non-functional python3 App Execution Alias
+# stub, which used to silently break this step and everything after it).
+# Idempotent: matches nothing to remove on a file that's already patched.
+for f in assets/map/levels/*.map.yaml; do
+  awk -f scripts/strip-decorative-critters.awk "$f" > "$f.tmp"
+  mv "$f.tmp" "$f"
+done
 
-# Project's own industrial weapon texture pack over 14 of Jumpy's weapons.
-# See scripts/apply-weapon-textures.sh.
+# This project's own industrial weapon texture pack over 14 of Jumpy's
+# weapons. Also idempotent (re-copies the same files, re-sets the same name).
 bash scripts/apply-weapon-textures.sh
 
 echo "Done. Remember: assets/ is for local baseline testing only, never for a shipped build."
