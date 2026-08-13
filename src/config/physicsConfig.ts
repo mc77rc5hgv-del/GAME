@@ -14,6 +14,9 @@ export const PHYSICS_CONFIG = {
   PLAYER_FRICTION: 0.01,
   PLAYER_FRICTION_AIR: 0.02,
   PLAYER_RESTITUTION: 0.05,
+  // Visual sprite height (art is drawn a little taller than the collision
+  // box - cap, hood, headphones overshoot - so it can overhang PLAYER_HEIGHT).
+  PLAYER_SPRITE_HEIGHT: 78,
 
   // Movement (continuous force applied every tick while a direction is held,
   // integrated by Matter's own force accumulator - same mechanism as gravity)

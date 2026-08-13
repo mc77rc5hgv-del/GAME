@@ -3,7 +3,7 @@ import { PHYSICS_CONFIG } from '../config/physicsConfig';
 import { GAME_CONFIG } from '../config/gameConfig';
 import type { WeaponType } from '../config/weapons';
 import { WEAPONS } from '../config/weapons';
-import { applyImpulse } from '../utils/physicsUtils';
+import { applyImpulse, scaleDisplayToHeight, scaleDisplayToWidth } from '../utils/physicsUtils';
 
 export type FacingDirection = 1 | -1;
 
@@ -80,6 +80,7 @@ export class Player extends Phaser.Physics.Matter.Sprite {
       GAME_CONFIG.COLLISION.DEBRIS,
     ]);
     this.setDepth(10);
+    scaleDisplayToHeight(this, PHYSICS_CONFIG.PLAYER_SPRITE_HEIGHT);
 
     this.weaponSprite = scene.add.image(x, y, 'weapon_pistol');
     this.weaponSprite.setVisible(false);
@@ -179,8 +180,12 @@ export class Player extends Phaser.Physics.Matter.Sprite {
 
     if (this.currentWeapon) {
       const def = WEAPONS[this.currentWeapon.type];
+      const textureKey = `weapon_${this.currentWeapon.type}`;
       const offsetX = def.muzzleOffset.x * 0.55 * this.facing;
-      this.weaponSprite.setTexture(`weapon_${this.currentWeapon.type}`);
+      if (this.weaponSprite.texture.key !== textureKey) {
+        this.weaponSprite.setTexture(textureKey);
+        scaleDisplayToWidth(this.weaponSprite, def.size.width * 1.8);
+      }
       this.weaponSprite.setPosition(x + offsetX, y - 2);
       this.weaponSprite.setFlipX(this.facing === -1);
       this.weaponSprite.setVisible(true);

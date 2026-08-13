@@ -21,6 +21,42 @@ export function distance(ax: number, ay: number, bx: number, by: number): number
 }
 
 /**
+ * Source art is drawn larger than its in-game footprint (so the engine can
+ * downscale for a crisper look), and different art assets don't share a
+ * common native resolution. These helpers uniformly scale a sprite/image's
+ * *display* size from its actual loaded texture dimensions to hit a target
+ * width or height, preserving aspect ratio - independent of whatever the
+ * Matter physics body size is set to.
+ */
+export function scaleDisplayToWidth(
+  target: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image,
+  width: number
+): void {
+  const src = target.texture.getSourceImage();
+  const scale = width / src.width;
+  target.setDisplaySize(width, src.height * scale);
+}
+
+/** Uniformly scales so the larger native dimension equals `maxSize`. */
+export function scaleDisplayToFit(
+  target: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image,
+  maxSize: number
+): void {
+  const src = target.texture.getSourceImage();
+  const scale = maxSize / Math.max(src.width, src.height);
+  target.setDisplaySize(src.width * scale, src.height * scale);
+}
+
+export function scaleDisplayToHeight(
+  target: Phaser.GameObjects.Sprite | Phaser.GameObjects.Image,
+  height: number
+): void {
+  const src = target.texture.getSourceImage();
+  const scale = height / src.height;
+  target.setDisplaySize(src.width * scale, height);
+}
+
+/**
  * Radial explosion falloff: 1 at the epicenter, 0 at/beyond radius, using an
  * inverse power curve so the drop-off feels punchy up close and forgiving at
  * the edge. Exported standalone (no Phaser/Matter deps) so it is unit-testable.

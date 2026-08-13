@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { GAME_CONFIG } from '../config/gameConfig';
 import { PHYSICS_CONFIG } from '../config/physicsConfig';
-import { distance } from '../utils/physicsUtils';
+import { distance, scaleDisplayToFit } from '../utils/physicsUtils';
 
 export interface TileRect {
   x: number;
@@ -13,7 +13,7 @@ export interface TileRect {
 interface DestructibleTile {
   id: number;
   body: MatterJS.BodyType;
-  gfx: Phaser.GameObjects.Rectangle;
+  gfx: Phaser.GameObjects.Image;
   hp: number;
   maxHp: number;
   x: number;
@@ -24,19 +24,13 @@ interface DestructibleTile {
 
 const TILE_SIZE = 40;
 const TILE_HP = 34;
+const DEBRIS_TEXTURES = ['debris_0', 'debris_1', 'debris_2'];
 let nextTileId = 1;
 
-function lerpColor(from: number, to: number, ratio: number): number {
-  const fr = (from >> 16) & 0xff;
-  const fg = (from >> 8) & 0xff;
-  const fb = from & 0xff;
-  const tr = (to >> 16) & 0xff;
-  const tg = (to >> 8) & 0xff;
-  const tb = to & 0xff;
-  const r = Math.round(fr + (tr - fr) * ratio);
-  const g = Math.round(fg + (tg - fg) * ratio);
-  const b = Math.round(fb + (tb - fb) * ratio);
-  return (r << 16) | (g << 8) | b;
+function tileTextureFor(ratio: number): string {
+  if (ratio > 0.5) return 'tile_normal';
+  if (ratio > 0.2) return 'tile_cracked';
+  return 'tile_broken';
 }
 
 /**
@@ -81,8 +75,8 @@ export class DestructionSystem {
         mask: 0xffffffff,
       },
     });
-    const gfx = this.scene.add.rectangle(x, y, TILE_SIZE - 1, TILE_SIZE - 1, 0x3d3552);
-    gfx.setStrokeStyle(1, 0x2a2440);
+    const gfx = this.scene.add.image(x, y, 'tile_normal');
+    gfx.setDisplaySize(TILE_SIZE, TILE_SIZE);
     gfx.setDepth(1);
     this.tiles.set(id, { id, body, gfx, hp: TILE_HP, maxHp: TILE_HP, x, y, width: TILE_SIZE, height: TILE_SIZE });
   }
@@ -105,7 +99,11 @@ export class DestructionSystem {
   private damageTile(tile: DestructibleTile, dmg: number): void {
     tile.hp -= dmg;
     const ratio = Phaser.Math.Clamp(tile.hp / tile.maxHp, 0, 1);
-    tile.gfx.fillColor = lerpColor(0x1c1826, 0x3d3552, ratio);
+    const textureKey = tileTextureFor(ratio);
+    if (tile.gfx.texture.key !== textureKey) {
+      tile.gfx.setTexture(textureKey);
+      tile.gfx.setDisplaySize(TILE_SIZE, TILE_SIZE);
+    }
     if (tile.hp <= 0) {
       this.destroyTile(tile);
     }
@@ -121,14 +119,14 @@ export class DestructionSystem {
   private spawnDebris(x: number, y: number): void {
     const count = 2;
     for (let i = 0; i < count; i++) {
-      const size = Phaser.Math.Between(6, 12);
+      const size = Phaser.Math.Between(7, 14);
       const debris = this.scene.matter.add.image(
         x + Phaser.Math.Between(-10, 10),
         y + Phaser.Math.Between(-10, 10),
-        'debris'
+        Phaser.Utils.Array.GetRandom(DEBRIS_TEXTURES)
       );
-      debris.setDisplaySize(size, size);
       debris.setRectangle(size, size);
+      scaleDisplayToFit(debris, size);
       debris.setFrictionAir(PHYSICS_CONFIG.DEBRIS_FRICTION_AIR);
       debris.setBounce(PHYSICS_CONFIG.DEBRIS_RESTITUTION);
       debris.setCollisionCategory(GAME_CONFIG.COLLISION.DEBRIS);

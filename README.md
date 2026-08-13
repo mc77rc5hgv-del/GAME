@@ -5,8 +5,10 @@ gameplay/physics reference for the target experience *"Капибары с пу�
 
 This is **stage 1**: the goal is a physically convincing, genuinely playable
 arena brawler — movement, weight, knockback, weapons, destruction, rounds —
-not final art or a final map. Characters and visuals are deliberately simple
-placeholders so the physics and pacing can be compared and tuned first.
+before final art or a final map. A first texture pack (see [Art](#art)) is
+already wired in; the map layout, animation, and further art polish are
+still deliberately simple so the physics and pacing can be compared and
+tuned first.
 
 ## Stack
 
@@ -99,8 +101,8 @@ src/
     gameConfig.ts           Arena size, camera, rounds, spawn timing
     weapons.ts               Per-weapon stats (damage, recoil, spread, ...)
   scenes/
-    BootScene.ts            Generates all textures procedurally, then hands
-                             off to the menu
+    BootScene.ts            Loads the texture pack (public/assets), then
+                             hands off to the menu
     MenuScene.ts             Controls screen + Start button; fires
                              LoadingAPI.ready() once actually interactive
     GameScene.ts              Owns the match: arena, players, systems,
@@ -146,6 +148,35 @@ Jumps, recoil, knockback, throws and explosions are all implemented as
 **impulses** (`Δv = impulse / mass`) via `utils/physicsUtils.ts#applyImpulse`,
 so heavier bodies are proportionally harder to move — real momentum, not an
 arbitrary "knockback speed".
+
+## Art
+
+Real texture pack (`public/assets/`) — characters, weapons, projectiles,
+explosion/smoke/muzzle flipbooks, destructible-tile damage states, and a few
+HUD icons. Loaded in `BootScene.preload()` and referenced by texture key
+everywhere else, so entities/systems don't know or care that the art used to
+be procedural.
+
+A few notes for whoever touches this next:
+
+- The source pack ships as flattened presentation sheets, not pre-sliced
+  frames — see `docs/asset-pipeline.md` for how each sprite was extracted
+  (connected-component detection + manual crop regions) and reproduce it
+  the same way if the pack gets regenerated.
+- Character art is intentionally kept as a single idle frame per player
+  (`characters/player1_idle.png` / `player2_idle.png`) with a soft painted
+  vignette behind it that blends into the arena's dark background — no
+  animation state machine exists yet, so `Player` still renders one static
+  texture the way it always has. The source sheet has run/jump/aim/hit/death
+  poses ready to go whenever an animation pass happens.
+- Visual size and physics-body size are independent on purpose (see
+  `scaleDisplayToWidth/Height/Fit` in `utils/physicsUtils.ts`): art is
+  drawn larger than its in-game footprint for a crisper look, and each
+  entity scales its *display* size from the actual loaded texture at
+  runtime rather than assuming a fixed source resolution.
+- Explosion sparks and the screen flash are still simple tweened shapes, not
+  art assets — cheap, and they layer fine on top of the real explosion
+  flipbook.
 
 ## Audio
 
@@ -233,8 +264,9 @@ round death/restart, scoring, pause, debug overlay).
 
 ## Known limitations (stage 1)
 
-- Placeholder art: procedurally generated rectangles/circles, not final
-  characters or a final map.
+- Characters render as a single static idle frame — the source art has full
+  run/jump/aim/hit/death pose sets (see `docs/asset-pipeline.md`), but no
+  animation state machine consumes them yet.
 - No bundled audio assets yet (see [Audio](#audio)) — SFX/music are
   synthesized.
 - Single arena layout; no map selection.

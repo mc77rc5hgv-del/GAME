@@ -62,6 +62,11 @@ export class UIScene extends Phaser.Scene {
       .text(w - 24, 58, '', { fontFamily: 'monospace', fontSize: '13px', color: '#d8d4ea' })
       .setOrigin(1, 0);
 
+    const crownP1 = this.add.image(w / 2 - 62, 30, 'icon_crown_p1').setOrigin(1, 0.5);
+    crownP1.setDisplaySize((crownP1.width / crownP1.height) * 22, 22);
+    const crownP2 = this.add.image(w / 2 + 62, 30, 'icon_crown_p2').setOrigin(0, 0.5);
+    crownP2.setDisplaySize((crownP2.width / crownP2.height) * 22, 22);
+
     this.scoreText = this.add
       .text(w / 2, 20, '', { fontFamily: 'monospace', fontSize: '20px', color: '#ffe066', fontStyle: 'bold' })
       .setOrigin(0.5, 0);

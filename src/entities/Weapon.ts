@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { PHYSICS_CONFIG } from '../config/physicsConfig';
 import { GAME_CONFIG } from '../config/gameConfig';
 import { WEAPONS, type WeaponType } from '../config/weapons';
+import { scaleDisplayToWidth } from '../utils/physicsUtils';
 
 /**
  * A weapon lying/flying in the world as a physical object (on the ground,
@@ -38,6 +39,7 @@ export class WeaponPickup extends Phaser.Physics.Matter.Sprite {
       GAME_CONFIG.COLLISION.DEBRIS,
     ]);
     this.setDepth(5);
+    scaleDisplayToWidth(this, def.size.width * 1.8);
   }
 
   markThrown(byPlayerIndex: 1 | 2): void {

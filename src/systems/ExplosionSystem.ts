@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { PHYSICS_CONFIG } from '../config/physicsConfig';
-import { distance, explosionFalloff } from '../utils/physicsUtils';
+import { distance, explosionFalloff, scaleDisplayToFit } from '../utils/physicsUtils';
 import { Player } from '../entities/Player';
 import { WeaponPickup } from '../entities/Weapon';
 import type { DestructionSystem } from './DestructionSystem';
@@ -77,16 +77,7 @@ export class ExplosionSystem {
   }
 
   private spawnVisuals(x: number, y: number, radius: number): void {
-    const flash = this.scene.add.circle(x, y, radius * 0.4, 0xffdd88, 0.8);
-    flash.setDepth(50);
-    this.scene.tweens.add({
-      targets: flash,
-      radius: radius * 0.9,
-      alpha: 0,
-      duration: 220,
-      onUpdate: (_tween, target: Phaser.GameObjects.Arc) => target.setRadius(target.radius),
-      onComplete: () => flash.destroy(),
-    });
+    this.spawnExplosionFlipbook(x, y, radius);
 
     const particleCount = 14;
     for (let i = 0; i < particleCount; i++) {
@@ -110,21 +101,59 @@ export class ExplosionSystem {
       });
     }
 
-    for (let i = 0; i < 4; i++) {
-      const smoke = this.scene.add.circle(
-        x + Phaser.Math.Between(-20, 20),
-        y + Phaser.Math.Between(-20, 20),
-        Phaser.Math.Between(14, 26),
-        0x888888,
-        0.35
-      );
+    this.spawnSmoke(x, y, radius);
+  }
+
+  /** Steps through the explosion_0..5 stills as a quick hand-timed flipbook. */
+  private spawnExplosionFlipbook(x: number, y: number, radius: number): void {
+    const frameCount = 6;
+    const targetSize = Phaser.Math.Clamp(radius * 1.5, 40, 260);
+    const sprite = this.scene.add.sprite(x, y, 'explosion_0');
+    sprite.setDepth(50);
+    sprite.setBlendMode(Phaser.BlendModes.ADD);
+    scaleDisplayToFit(sprite, targetSize);
+
+    const state = { frame: 0 };
+    this.scene.tweens.add({
+      targets: state,
+      frame: frameCount - 1,
+      duration: 380,
+      ease: 'Linear',
+      onUpdate: () => {
+        const idx = Math.min(frameCount - 1, Math.floor(state.frame));
+        sprite.setTexture(`explosion_${idx}`);
+        scaleDisplayToFit(sprite, targetSize);
+      },
+      onComplete: () => {
+        this.scene.tweens.add({
+          targets: sprite,
+          alpha: 0,
+          scaleX: sprite.scaleX * 1.15,
+          scaleY: sprite.scaleY * 1.15,
+          duration: 180,
+          onComplete: () => sprite.destroy(),
+        });
+      },
+    });
+  }
+
+  private spawnSmoke(x: number, y: number, radius: number): void {
+    const count = Phaser.Math.Clamp(Math.round(radius / 55), 3, 6);
+    for (let i = 0; i < count; i++) {
+      const key = `smoke_${Phaser.Math.Between(0, 3)}`;
+      const smoke = this.scene.add.sprite(x + Phaser.Math.Between(-24, 24), y + Phaser.Math.Between(-20, 10), key);
       smoke.setDepth(48);
+      smoke.setAlpha(0.6);
+      smoke.setAngle(Phaser.Math.Between(0, 359));
+      scaleDisplayToFit(smoke, Phaser.Math.Between(30, 55));
       this.scene.tweens.add({
         targets: smoke,
-        y: smoke.y - Phaser.Math.Between(30, 60),
-        scale: 1.8,
+        y: smoke.y - Phaser.Math.Between(30, 65),
+        scaleX: smoke.scaleX * 1.6,
+        scaleY: smoke.scaleY * 1.6,
         alpha: 0,
-        duration: Phaser.Math.Between(600, 1000),
+        duration: Phaser.Math.Between(650, 1050),
+        ease: 'Cubic.Out',
         onComplete: () => smoke.destroy(),
       });
     }

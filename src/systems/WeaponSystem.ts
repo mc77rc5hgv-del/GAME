@@ -5,7 +5,7 @@ import { GAME_CONFIG } from '../config/gameConfig';
 import { Player } from '../entities/Player';
 import { WeaponPickup } from '../entities/Weapon';
 import { Projectile } from '../entities/Projectile';
-import { applyImpulse, distance } from '../utils/physicsUtils';
+import { applyImpulse, distance, scaleDisplayToFit } from '../utils/physicsUtils';
 import type { ExplosionSystem } from './ExplosionSystem';
 import type { AudioManager } from './AudioManager';
 
@@ -110,7 +110,25 @@ export class WeaponSystem {
 
     player.applyKnockback(-def.recoil * player.facing, -def.recoil * 0.2);
     this.audio.play(WEAPON_SFX[def.type]);
+    this.spawnMuzzleFlash(muzzle.x, muzzle.y, player.facing);
     return true;
+  }
+
+  private spawnMuzzleFlash(x: number, y: number, facing: 1 | -1): void {
+    const flash = this.scene.add.sprite(x, y, 'muzzle_flash');
+    flash.setDepth(15);
+    flash.setFlipX(facing === -1);
+    flash.setBlendMode(Phaser.BlendModes.ADD);
+    scaleDisplayToFit(flash, 30);
+    flash.setAlpha(0.95);
+    this.scene.tweens.add({
+      targets: flash,
+      alpha: 0,
+      scaleX: flash.scaleX * 1.3,
+      scaleY: flash.scaleY * 1.3,
+      duration: 90,
+      onComplete: () => flash.destroy(),
+    });
   }
 
   handleProjectileHitPlayer(projectile: Projectile, player: Player): void {

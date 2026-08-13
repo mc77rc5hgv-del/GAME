@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GAME_CONFIG } from '../config/gameConfig';
 import { WEAPONS, type WeaponType } from '../config/weapons';
+import { scaleDisplayToFit } from '../utils/physicsUtils';
 
 export class Projectile extends Phaser.Physics.Matter.Sprite {
   weaponType: WeaponType;
@@ -49,6 +50,7 @@ export class Projectile extends Phaser.Physics.Matter.Sprite {
     this.setCollidesWith([GAME_CONFIG.COLLISION.GROUND, GAME_CONFIG.COLLISION.PLAYER, GAME_CONFIG.COLLISION.DEBRIS]);
     this.setVelocity(velocityX, velocityY);
     this.setDepth(6);
+    scaleDisplayToFit(this, radius * 2.4);
 
     // Native Matter/Phaser gravity is all-or-nothing per body; we want partial
     // scales (e.g. a grenade arcs more than a shotgun pellet), so gravity is
