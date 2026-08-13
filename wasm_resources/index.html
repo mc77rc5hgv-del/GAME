@@ -141,9 +141,15 @@
 
       // Requirement 2.14: language must come from
       // ysdk.environment.i18n.lang, never navigator.language, with English
-      // as the only fallback.
+      // as the only fallback. ysdk reports short codes ("ru"/"en"); mapped
+      // to full BCP-47 tags matching this project's locale folders
+      // (assets/locales/ru-RU, en-US) exactly, so Jumpy's locale negotiation
+      // (bones_framework -> sys_locale -> fluent-langneg) hits a plain exact
+      // match instead of depending on its fuzzy region-inference matching,
+      // which doesn't reliably resolve a bare "ru" to "ru-RU".
       const SUPPORTED_LANGS = ["ru", "en"];
       const FALLBACK_LANG = "en";
+      const BCP47_TAG = { ru: "ru-RU", en: "en-US" };
 
       function withTimeout(promise, ms) {
         return Promise.race([
@@ -185,7 +191,7 @@
 
       (async () => {
         const { ysdk, lang } = await resolveYandex();
-        overrideNavigatorLanguage(lang);
+        overrideNavigatorLanguage(BCP47_TAG[lang] ?? lang);
         window.__ysdk = ysdk;
 
         // Defined *before* calling init() below: the wasm module can call

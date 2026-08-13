@@ -22,4 +22,11 @@ echo "Fetching Jumpy's dev-only assets (ref: $REF) into ./assets (gitignored, no
 git clone --depth 1 --branch "$REF" https://github.com/fishfolk/jumpy.git .jumpy-upstream-tmp
 mv .jumpy-upstream-tmp/assets ./assets
 rm -rf .jumpy-upstream-tmp
+
+# Overlay this project's own (original, committed) Russian localization as
+# an additional locale, so the Yandex language bridge has something real to
+# switch to locally. Additive only - Jumpy's own en-US/fr-FR are untouched.
+cp -r localization/ru assets/locales/ru-RU
+sed -i '/^locales:/a\  - ru-RU/locale.yaml' assets/locales/localization.yaml
+
 echo "Done. Remember: assets/ is for local baseline testing only, never for a shipped build."

@@ -1,0 +1,16 @@
+move-up = Движение вверх
+move-down = Движение вниз
+move-left = Движение влево
+move-right = Движение вправо
+move-up-alt = Движение вверх (доп.)
+move-down-alt = Движение вниз (доп.)
+move-left-alt = Движение влево (доп.)
+move-right-alt = Движение вправо (доп.)
+jump = Прыжок
+grab-drop = Взять / Бросить
+shoot = Стрелять
+slide = Подкат
+ragdoll = Тряпичная кукла
+menu-confirm = Подтвердить
+menu-back = Назад
+menu-start = Старт
