@@ -9,15 +9,45 @@ pub fn game_plugin(game: &mut Game) {
 
 /// Startup system to load the game settings or use the default settings specified in the game meta.
 fn load_settings(game: &mut Game) {
-    let default_settings = {
+    let mut default_settings = {
         let assets = game.shared_resource::<AssetServer>();
         let settings = &assets.root::<GameMeta>().default_settings;
         settings.clone()
     };
+
+    apply_local_control_scheme(&mut default_settings.player_controls);
+
     let mut storage = game.shared_resource_mut::<Storage>();
     if storage.get::<Settings>().is_none() {
         storage.insert(default_settings);
     }
+}
+
+/// Fixed local two-player keyboard scheme for this project.
+///
+/// `KeyCode` here is a physical key (winit's web backend derives it from
+/// `KeyboardEvent.code`), so this is unaffected by keyboard layout - it
+/// still works on a Cyrillic layout, for example. Menu navigation keys are
+/// left at their game-meta defaults; only in-match gameplay actions are
+/// pinned here.
+fn apply_local_control_scheme(controls: &mut PlayerControlMapping) {
+    let p1 = &mut controls.keyboard1;
+    p1.movement.left = InputKind::Keyboard(KeyCode::A);
+    p1.movement.right = InputKind::Keyboard(KeyCode::D);
+    p1.movement.down = InputKind::Keyboard(KeyCode::S);
+    p1.jump = InputKind::Keyboard(KeyCode::W);
+    p1.grab = InputKind::Keyboard(KeyCode::E);
+    p1.shoot = InputKind::Keyboard(KeyCode::R);
+    p1.pause = InputKind::Keyboard(KeyCode::Escape);
+
+    let p2 = &mut controls.keyboard2;
+    p2.movement.left = InputKind::Keyboard(KeyCode::Left);
+    p2.movement.right = InputKind::Keyboard(KeyCode::Right);
+    p2.movement.down = InputKind::Keyboard(KeyCode::Down);
+    p2.jump = InputKind::Keyboard(KeyCode::Up);
+    p2.grab = InputKind::Keyboard(KeyCode::L);
+    p2.shoot = InputKind::Keyboard(KeyCode::K);
+    p2.pause = InputKind::Keyboard(KeyCode::Escape);
 }
 
 /// Global settings, stored and accessed through [`Storage`].

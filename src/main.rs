@@ -17,6 +17,7 @@ pub mod core;
 pub mod debug;
 pub mod fullscreen;
 pub mod input;
+pub mod mute;
 pub mod profiler;
 pub mod sessions;
 pub mod settings;
@@ -158,6 +159,7 @@ fn main() {
         .install_plugin(audio::game_plugin)
         .install_plugin(settings::game_plugin)
         .install_plugin(fullscreen::game_plugin)
+        .install_plugin(mute::game_plugin)
         .install_plugin(input::game_plugin)
         .install_plugin(core::game_plugin)
         .install_plugin(debug::game_plugin)
