@@ -52,4 +52,8 @@ bash scripts/apply-weapon-textures.sh
 # unconditionally, whatever its current content).
 bash scripts/apply-background.sh
 
+# This project's own soldier character art over Fishy (P1) and Orcy (P2).
+# Also idempotent (re-copies the same files).
+bash scripts/apply-character-textures.sh
+
 echo "Done. Remember: assets/ is for local baseline testing only, never for a shipped build."
