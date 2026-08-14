@@ -47,4 +47,9 @@ done
 # weapons. Also idempotent (re-copies the same files, re-sets the same name).
 bash scripts/apply-weapon-textures.sh
 
+# This project's own static background image, replacing the 4-layer
+# parallax on all 14 levels. Idempotent (rewrites the background: block
+# unconditionally, whatever its current content).
+bash scripts/apply-background.sh
+
 echo "Done. Remember: assets/ is for local baseline testing only, never for a shipped build."
