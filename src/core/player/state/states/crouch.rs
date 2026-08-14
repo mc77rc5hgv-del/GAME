@@ -105,10 +105,8 @@ pub fn handle_player_state(
             }
         }
 
-        let control = &player_inputs.players[player_idx.0 as usize].control;
-
-        if control.jump_just_pressed {
-            body.fall_through = true;
-        }
+        // Crouching (holding down) alone drops the player through jump-through
+        // platforms; no jump input needed.
+        body.fall_through = true;
     }
 }
