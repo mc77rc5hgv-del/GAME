@@ -1,0 +1,68 @@
+{
+  "package": "Jumpy soldier character drop-in",
+  "version": 1,
+  "files": [
+    {
+      "path": "assets/elements/player/fishy/fishy-body.png",
+      "width": 1344,
+      "height": 560,
+      "mode": "RGBA",
+      "sha256": "c716aebbf85fd4e26318d3d38a6a90f4a5cb222e38f486f1d91b518a83339589"
+    },
+    {
+      "path": "assets/elements/player/fishy/fishy-face.png",
+      "width": 506,
+      "height": 32,
+      "mode": "RGBA",
+      "sha256": "ce2827f1833aeddacadde539dcc9848767e68e58d25651c679fc766d27feacce"
+    },
+    {
+      "path": "assets/elements/player/fishy/fishy-fin.png",
+      "width": 120,
+      "height": 238,
+      "mode": "RGBA",
+      "sha256": "33421e5db133e437f85ac07405413d246203123efb7f0b49785bc0beaf55a075"
+    },
+    {
+      "path": "assets/elements/player/orcy/orcy-body.png",
+      "width": 1344,
+      "height": 560,
+      "mode": "RGBA",
+      "sha256": "4458c498619f4bf622e4f6581fceb85040ff2f1d8cb50b81c0b2385f83a2c467"
+    },
+    {
+      "path": "assets/elements/player/orcy/orcy-face.png",
+      "width": 506,
+      "height": 32,
+      "mode": "RGBA",
+      "sha256": "d14e9d78059dec03fb5451a1b8c6621cbfa86554c19163440d1ef2146af6df0f"
+    },
+    {
+      "path": "assets/elements/player/orcy/orcy-fin.png",
+      "width": 120,
+      "height": 238,
+      "mode": "RGBA",
+      "sha256": "00072987caa5c3b336ec9ec7229e3a67174c01546d7f0e1137897d83dede65c3"
+    }
+  ],
+  "validation": {
+    "format": "PNG",
+    "color_mode": "RGBA",
+    "transparent_background": true,
+    "flags_or_symbols": false,
+    "dimensions": {
+      "body": {
+        "width": 1344,
+        "height": 560
+      },
+      "face": {
+        "width": 506,
+        "height": 32
+      },
+      "fin": {
+        "width": 120,
+        "height": 238
+      }
+    }
+  }
+}

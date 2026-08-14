@@ -1,0 +1,10 @@
+/target
+/web-target
+Cargo.lock.bak
+*.local
+.DS_Store
+
+# Jumpy's own CC BY-NC media assets are never committed to this repo (see
+# THIRD_PARTY_NOTICES.md). This directory is populated locally, for
+# non-commercial baseline testing only, by scripts/fetch-dev-assets.sh.
+/assets
