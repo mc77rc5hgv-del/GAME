@@ -56,6 +56,20 @@ bytemuck   = "1.12"
 # match this exactly.
 wasm-bindgen = "=0.2.93"
 
+# Not used directly - declared purely to switch on sys-locale's "js" feature
+# for the web build, via Cargo's feature unification.
+#
+# bones_framework depends on sys-locale without that feature, and sys-locale
+# only compiles its browser backend under
+# `cfg(all(target_family = "wasm", feature = "js", not(unix)))`. Without it,
+# `sys_locale::get_locale()` falls through to the no-op branch and returns
+# None on wasm, so bones' localization loader always negotiated down to its
+# en-US default and the game was permanently English in the browser no
+# matter what the Yandex SDK reported. With the feature on, sys-locale reads
+# `navigator.languages`, which is what the bridge in wasm_resources/index.html
+# sets from `ysdk.environment.i18n.lang`.
+sys-locale = { version = "0.3", features = ["js"] }
+
 # anyhow              = "1.0"
 # async-channel       = "1.7"
 # bevy_console        = "0.7"
