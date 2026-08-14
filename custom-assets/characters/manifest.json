@@ -14,14 +14,14 @@
       "width": 506,
       "height": 32,
       "mode": "RGBA",
-      "sha256": "4f8b585d1b496e1e04e4b6bfc21cb980f1fe2477ca44d73331fec3b9a85fc3ea"
+      "sha256": "ce2827f1833aeddacadde539dcc9848767e68e58d25651c679fc766d27feacce"
     },
     {
       "path": "assets/elements/player/fishy/fishy-fin.png",
       "width": 120,
       "height": 238,
       "mode": "RGBA",
-      "sha256": "811932f60ed92b23284730b6d2339c3846f794f97e7eb2cac6583a8db755f0c2"
+      "sha256": "33421e5db133e437f85ac07405413d246203123efb7f0b49785bc0beaf55a075"
     },
     {
       "path": "assets/elements/player/orcy/orcy-body.png",
@@ -35,14 +35,14 @@
       "width": 506,
       "height": 32,
       "mode": "RGBA",
-      "sha256": "8b9a6942bd1aff7dee6ef48613dcd3960f2371f4d4df5a24481b54272230ba00"
+      "sha256": "d14e9d78059dec03fb5451a1b8c6621cbfa86554c19163440d1ef2146af6df0f"
     },
     {
       "path": "assets/elements/player/orcy/orcy-fin.png",
       "width": 120,
       "height": 238,
       "mode": "RGBA",
-      "sha256": "879198e02920b2071880bbb4e303f4c8d06a68f776901d0ce9d9771f090e3758"
+      "sha256": "00072987caa5c3b336ec9ec7229e3a67174c01546d7f0e1137897d83dede65c3"
     }
   ],
   "validation": {
