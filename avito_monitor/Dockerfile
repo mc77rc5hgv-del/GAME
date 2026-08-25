@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY avito_client.py db.py bot.py ./
+COPY avito_client.py avito_categories.py db.py bot.py ./
 
 # No VOLUME instruction here: Railway doesn't support it in Dockerfiles.
 # Persistence is provided by a Railway Volume mounted at /app/bot instead

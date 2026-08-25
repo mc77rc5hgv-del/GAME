@@ -48,6 +48,29 @@ class FakeUpdate:
         self.effective_chat = FakeChat(chat_id)
         self.message = FakeMsg(text)
         self.effective_message = self.message
+        self.callback_query = None
+
+
+class FakeQuery:
+    """Fakes telegram.CallbackQuery for testing inline-button handlers."""
+
+    def __init__(self, data, chat_id):
+        self.data = data
+        self.message = FakeMsg()
+        self.message.chat_id = chat_id
+        self.answer = AsyncMock()
+        self.edit_message_text = AsyncMock()
+        self.edit_message_reply_markup = AsyncMock()
+
+
+class FakeCBUpdate:
+    """Fakes telegram.Update for a callback-query-triggered update."""
+
+    def __init__(self, query):
+        self.callback_query = query
+        self.effective_chat = FakeChat(query.message.chat_id)
+        self.effective_message = query.message
+        self.message = None
 
 
 class FakeContext:
@@ -69,3 +92,13 @@ def fake_update():
 @pytest.fixture
 def fake_context():
     return FakeContext
+
+
+@pytest.fixture
+def fake_query():
+    return FakeQuery
+
+
+@pytest.fixture
+def fake_cb_update():
+    return FakeCBUpdate

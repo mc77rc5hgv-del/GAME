@@ -33,12 +33,16 @@ async def test_addfilter_rejects_non_avito_url(bot_module, fake_update, fake_con
     assert not bot.db.filter_exists(1, "bad")
 
 
-async def test_addfilter_guided_conversation(bot_module, fake_update, fake_context):
+async def test_addfilter_url_method_conversation(bot_module, fake_update, fake_context, fake_query, fake_cb_update):
     bot = bot_module
     chat_id = 777
     ctx = fake_context(args=[])
     upd0 = fake_update(chat_id)
     state = await bot.cmd_addfilter(upd0, ctx)
+    assert state == bot.ADD_METHOD  # shows "по категории" / "по ссылке" choice first
+
+    q = fake_query("addmethod:url", chat_id)
+    state = await bot.addmethod_chosen(fake_cb_update(q), ctx)
     assert state == bot.ASK_NAME
 
     upd1 = fake_update(chat_id, text="cars")
@@ -57,6 +61,141 @@ async def test_addfilter_guided_conversation(bot_module, fake_update, fake_conte
 
     assert state == bot.ConversationHandler.END
     assert bot.db.filter_exists(chat_id, "cars")
+
+
+async def test_addfilter_category_wizard_auto_save(bot_module, fake_context, fake_query, fake_cb_update):
+    bot = bot_module
+    chat_id = 778
+    ctx = fake_context()
+
+    q1 = fake_query("addmethod:category", chat_id)
+    state = await bot.addmethod_chosen(fake_cb_update(q1), ctx)
+    assert state == bot.PICK_CATEGORY
+    assert ctx.user_data["wizard"] == {}
+
+    q2 = fake_query("cat:2", chat_id)  # Электроника
+    state = await bot.pick_category(fake_cb_update(q2), ctx)
+    assert state == bot.PICK_SUBCAT
+    assert ctx.user_data["wizard"]["cat_idx"] == 2
+
+    q3 = fake_query("subcat:0", chat_id)  # Телефоны
+    state = await bot.pick_subcat(fake_cb_update(q3), ctx)
+    assert state == bot.PICK_CITY
+    assert ctx.user_data["wizard"]["subcat_slug"] == "telefony"
+
+    q4 = fake_query("city:1", chat_id)  # Москва
+    state = await bot.pick_city(fake_cb_update(q4), ctx)
+    assert state == bot.ASK_KEYWORD
+    assert ctx.user_data["wizard"]["city_slug"] == "moskva"
+
+    q5 = fake_query("wizkw:skip", chat_id)
+    state = await bot.ask_keyword_button(fake_cb_update(q5), ctx)
+    assert state == bot.ASK_PRICE
+
+    q6 = fake_query("wizprice:skip", chat_id)
+    fake_html = (
+        '<div data-marker="item" data-item-id="1">'
+        '<a data-marker="item-title" href="/a_1" title="X">X</a>'
+        '<p data-marker="item-price">1000</p></div>'
+    )
+    with patch.object(bot.avito_client, "fetch", return_value=(fake_html, 200)):
+        state = await bot.ask_price_button(fake_cb_update(q6), ctx)
+        assert state == bot.PREVIEW
+        assert ctx.user_data["wizard"]["url"] == "https://www.avito.ru/moskva/telefony"
+        suggested = ctx.user_data["wizard"]["suggested_name"]
+        assert suggested == "telefony-moskva"
+
+        q7 = fake_query("wizsave:auto", chat_id)
+        state = await bot.preview_action(fake_cb_update(q7), ctx)
+
+    assert state == bot.ConversationHandler.END
+    assert bot.db.filter_exists(chat_id, "telefony-moskva")
+    assert bot.db.get_filter(chat_id, "telefony-moskva").url == "https://www.avito.ru/moskva/telefony"
+    assert "wizard" not in ctx.user_data
+
+
+async def test_addfilter_category_wizard_with_keyword_price_and_custom_name(
+    bot_module, fake_context, fake_update, fake_query, fake_cb_update
+):
+    bot = bot_module
+    chat_id = 779
+    ctx = fake_context()
+    ctx.user_data["wizard"] = {"cat_idx": 1}  # Транспорт
+
+    q_subcat = fake_query("subcat:0", chat_id)  # Автомобили
+    await bot.pick_subcat(fake_cb_update(q_subcat), ctx)
+    q_city = fake_query("city:0", chat_id)  # Вся Россия
+    await bot.pick_city(fake_cb_update(q_city), ctx)
+
+    q_kw_ask = fake_query("wizkw:ask", chat_id)
+    state = await bot.ask_keyword_button(fake_cb_update(q_kw_ask), ctx)
+    assert state == bot.ASK_KEYWORD
+
+    upd_kw = fake_update(chat_id, text="ваз 2107")
+    state = await bot.ask_keyword_text(upd_kw, ctx)
+    assert state == bot.ASK_PRICE
+    assert ctx.user_data["wizard"]["keyword"] == "ваз 2107"
+
+    q_price_ask = fake_query("wizprice:ask", chat_id)
+    state = await bot.ask_price_button(fake_cb_update(q_price_ask), ctx)
+    assert state == bot.ASK_PRICE
+
+    bad_price = fake_update(chat_id, text="50000 10000")  # min > max
+    state = await bot.ask_price_text(bad_price, ctx)
+    assert state == bot.ASK_PRICE
+    assert "больше" in bad_price.message.reply_text.call_args[0][0]
+
+    fake_html = (
+        '<div data-marker="item" data-item-id="1">'
+        '<a data-marker="item-title" href="/a_1" title="X">X</a>'
+        '<p data-marker="item-price">150000</p></div>'
+    )
+    with patch.object(bot.avito_client, "fetch", return_value=(fake_html, 200)):
+        good_price = fake_update(chat_id, text="100000 300000")
+        state = await bot.ask_price_text(good_price, ctx)
+        assert state == bot.PREVIEW
+        wiz_url = ctx.user_data["wizard"]["url"]
+        assert "q=%D0%B2%D0%B0%D0%B7" in wiz_url  # url-encoded "ваз"
+        assert "pmin=100000" in wiz_url and "pmax=300000" in wiz_url
+
+        q_custom = fake_query("wizsave:custom", chat_id)
+        state = await bot.preview_action(fake_cb_update(q_custom), ctx)
+        assert state == bot.ASK_CUSTOM_NAME
+
+        name_upd = fake_update(chat_id, text="my-vaz")
+        state = await bot.custom_name_text(name_upd, ctx)
+
+    assert state == bot.ConversationHandler.END
+    assert bot.db.filter_exists(chat_id, "my-vaz")
+
+
+async def test_wizard_back_navigation_and_cancel(bot_module, fake_context, fake_query, fake_cb_update):
+    bot = bot_module
+    chat_id = 780
+    ctx = fake_context()
+    ctx.user_data["wizard"] = {"cat_idx": 0}
+
+    q_back = fake_query("wizback:category", chat_id)
+    state = await bot.pick_subcat(fake_cb_update(q_back), ctx)
+    assert state == bot.PICK_CATEGORY
+
+    q_cancel = fake_query("wizcancel", chat_id)
+    state = await bot.pick_category(fake_cb_update(q_cancel), ctx)
+    assert state == bot.ConversationHandler.END
+    assert "wizard" not in ctx.user_data
+
+
+async def test_menu_button_interrupts_wizard(bot_module, fake_update, fake_context):
+    bot = bot_module
+    chat_id = 781
+    ctx = fake_context()
+    ctx.user_data["wizard"] = {"cat_idx": 0, "subcat_name": "x", "subcat_slug": "x", "city_name": "y", "city_slug": "y"}
+
+    upd = fake_update(chat_id, text=bot.MENU_LIST)
+    state = await bot.ask_keyword_text(upd, ctx)
+    assert state == bot.ConversationHandler.END
+    assert "wizard" not in ctx.user_data
+    upd.message.reply_text.assert_called()  # cmd_myfilters replied ("no filters yet")
 
 
 async def test_pause_resume_setinterval(bot_module, fake_update, fake_context):
@@ -199,35 +338,44 @@ async def test_auto_pause_after_repeated_failures_then_resume(bot_module, fake_u
     assert f2.active is True and f2.auto_paused is False and f2.consecutive_failures == 0
 
 
-async def test_button_pause_and_delete_flow(bot_module, fake_update, fake_context):
+async def test_button_pause_and_delete_flow(bot_module, fake_context, fake_query, fake_cb_update):
     bot = bot_module
     chat_id = 60
     fid = bot.db.add_filter(chat_id, "f", "https://www.avito.ru/x", 15)
 
-    class FakeQuery:
-        def __init__(self, data):
-            self.data = data
-            self.message = MagicMock()
-            self.message.chat_id = chat_id
-            from unittest.mock import AsyncMock
-
-            self.answer = AsyncMock()
-            self.edit_message_text = AsyncMock()
-            self.edit_message_reply_markup = AsyncMock()
-
-    class FakeCBUpdate:
-        def __init__(self, query):
-            self.callback_query = query
-
-    q = FakeQuery(f"pause:{fid}")
-    await bot.on_button(FakeCBUpdate(q), fake_context())
+    q = fake_query(f"pause:{fid}", chat_id)
+    await bot.on_button(fake_cb_update(q), fake_context())
     assert bot.db.get_filter_by_id(fid).active is False
 
-    q2 = FakeQuery(f"delrequest:{fid}")
-    await bot.on_button(FakeCBUpdate(q2), fake_context())
-    q3 = FakeQuery(f"delconfirm:{fid}")
-    await bot.on_button(FakeCBUpdate(q3), fake_context())
+    q2 = fake_query(f"delrequest:{fid}", chat_id)
+    await bot.on_button(fake_cb_update(q2), fake_context())
+    q3 = fake_query(f"delconfirm:{fid}", chat_id)
+    await bot.on_button(fake_cb_update(q3), fake_context())
     assert not bot.db.filter_exists(chat_id, "f")
+
+
+async def test_button_interval_preset(bot_module, fake_context, fake_query, fake_cb_update):
+    bot = bot_module
+    chat_id = 61
+    fid = bot.db.add_filter(chat_id, "f", "https://www.avito.ru/x", 15)
+
+    q_open = fake_query(f"interval:{fid}", chat_id)
+    await bot.on_button(fake_cb_update(q_open), fake_context())
+    q_open.edit_message_text.assert_called()
+
+    q_set = fake_query(f"setiv:{fid}:30", chat_id)
+    await bot.on_button(fake_cb_update(q_set), fake_context())
+    assert bot.db.get_filter_by_id(fid).interval_minutes == 30
+
+
+async def test_on_button_ignores_stale_wizard_callback_data(bot_module, fake_context, fake_query, fake_cb_update):
+    bot = bot_module
+    chat_id = 62
+    # No colon / non-numeric id — must not crash, and must not match a filter.
+    for data in ("wizcancel", "wizback:category", "wizsave:auto"):
+        q = fake_query(data, chat_id)
+        await bot.on_button(fake_cb_update(q), fake_context())
+        q.edit_message_text.assert_not_called()
 
 
 async def test_broadcast_requires_admin(bot_module, fake_update, fake_context):

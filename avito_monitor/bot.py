@@ -17,10 +17,18 @@ import io
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 
-from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Update
+from telegram import (
+    BotCommand,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputFile,
+    ReplyKeyboardMarkup,
+    Update,
+)
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -32,6 +40,7 @@ from telegram.ext import (
     filters,
 )
 
+import avito_categories
 import avito_client
 from db import Database, Filter
 
@@ -56,7 +65,38 @@ ALLOWED_CHAT_IDS: set[int] | None = (
 _admin_raw = os.environ.get("AVITO_ADMIN_CHAT_ID", "").strip()
 ADMIN_CHAT_ID: int | None = int(_admin_raw) if _admin_raw else None
 
-ASK_NAME, ASK_URL = range(2)
+(
+    ASK_NAME,
+    ASK_URL,
+    ADD_METHOD,
+    PICK_CATEGORY,
+    PICK_SUBCAT,
+    PICK_CITY,
+    ASK_KEYWORD,
+    ASK_PRICE,
+    PREVIEW,
+    ASK_CUSTOM_NAME,
+) = range(10)
+
+MENU_ADD = "➕ Добавить фильтр"
+MENU_LIST = "📋 Мои фильтры"
+MENU_STATUS = "📊 Статус"
+MENU_STATS = "📈 Статистика"
+MENU_EXPORT = "📤 Экспорт"
+MENU_HELP = "❓ Помощь"
+
+# Populated at the bottom of the file, once the cmd_* functions it points
+# to actually exist. Used to let a main-menu button tap interrupt an
+# in-progress /addfilter wizard instead of being swallowed as free-text
+# input for whatever step the wizard is waiting on.
+MENU_HANDLERS: dict[str, ContextTypes.DEFAULT_TYPE] = {}
+
+
+def main_menu_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        [[MENU_ADD, MENU_LIST], [MENU_STATUS, MENU_STATS], [MENU_EXPORT, MENU_HELP]],
+        resize_keyboard=True,
+    )
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s", level=logging.INFO
@@ -154,9 +194,26 @@ def filter_keyboard(f: Filter) -> InlineKeyboardMarkup:
                 InlineKeyboardButton("🔄 Проверить сейчас", callback_data=f"check:{f.id}"),
                 InlineKeyboardButton(toggle[0], callback_data=toggle[1]),
             ],
-            [InlineKeyboardButton("🗑 Удалить", callback_data=f"delrequest:{f.id}")],
+            [
+                InlineKeyboardButton("⏱ Интервал", callback_data=f"interval:{f.id}"),
+                InlineKeyboardButton("🗑 Удалить", callback_data=f"delrequest:{f.id}"),
+            ],
         ]
     )
+
+
+INTERVAL_PRESETS = [5, 15, 30, 60]
+
+
+def interval_keyboard(f: Filter) -> InlineKeyboardMarkup:
+    row = [
+        InlineKeyboardButton(
+            f"{m} мин" + (" ✓" if f.interval_minutes == m else ""),
+            callback_data=f"setiv:{f.id}:{m}",
+        )
+        for m in INTERVAL_PRESETS
+    ]
+    return InlineKeyboardMarkup([row, [InlineKeyboardButton("‹ Назад", callback_data=f"back:{f.id}")]])
 
 
 def describe_filter(f: Filter) -> str:
@@ -306,30 +363,20 @@ async def poll_due_filters(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 HELP_TEXT = (
     "Я слежу за поиском на Avito и присылаю новые объявления по твоим фильтрам.\n\n"
-    "<b>Основное:</b>\n"
-    "/addfilter — добавить фильтр (пошагово спрошу имя и ссылку)\n"
-    "/addfilter имя ссылка — добавить фильтр одной командой\n"
-    "/myfilters — список фильтров с кнопками управления\n"
-    "/status — когда следующая проверка по каждому фильтру\n"
-    "/pause имя — поставить фильтр на паузу\n"
-    "/resume имя — возобновить фильтр\n"
-    "/removefilter имя — удалить фильтр\n"
-    "/check имя — проверить фильтр прямо сейчас\n"
-    "/checkall — проверить все свои фильтры сейчас\n"
-    "/stats — статистика бота\n"
-    "/cancel — отменить текущий диалог\n\n"
-    "<b>Тонкая настройка фильтра:</b>\n"
-    "/setinterval имя минуты — периодичность проверки\n"
+    "Основное управление — кнопками внизу экрана:\n"
+    f"{MENU_ADD} — добавить фильтр (по категории или по ссылке с Avito)\n"
+    f"{MENU_LIST} — список фильтров с кнопками (пауза/возобновить/проверить/интервал/удалить)\n"
+    f"{MENU_STATUS} — когда следующая проверка по каждому фильтру\n"
+    f"{MENU_STATS} — статистика\n"
+    f"{MENU_EXPORT} — выгрузить фильтры в JSON (пришли такой файл боту — импортирую)\n\n"
+    "Если кнопки внизу пропали — напиши /start, чтобы вернуть меню.\n\n"
+    "<b>Команды для тонкой настройки</b> (не всё вынесено в кнопки):\n"
     "/renamefilter старое новое — переименовать\n"
     "/seturl имя ссылка — заменить ссылку поиска\n"
     "/setkeywords имя слово1,слово2 — скрывать объявления с этими словами в заголовке "
     "(«-» чтобы очистить)\n"
-    "/setprice имя мин макс — ограничить диапазон цены (0 — без ограничения)\n\n"
-    "<b>Резервная копия:</b>\n"
-    "/export — прислать все фильтры файлом JSON\n"
-    "пришли такой файл боту — импортирую фильтры из него\n\n"
-    "Ссылка для фильтра — это обычный URL поиска Avito: настрой на сайте нужный "
-    "город/цену/категорию и скопируй адрес из браузера.\n\n"
+    "/setprice имя мин макс — доп. ограничение цены поверх фильтра Avito (0 — без ограничения)\n"
+    "/cancel — отменить текущий диалог\n\n"
     "Кстати, я слежу и за снижением цены: если у уже виденного объявления цена "
     "упала — тоже пришлю уведомление."
 )
@@ -338,15 +385,28 @@ HELP_TEXT = (
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await guard(update):
         return
-    await update.message.reply_html(
-        "Привет! " + HELP_TEXT
-    )
+    await update.message.reply_html("Привет! " + HELP_TEXT, reply_markup=main_menu_keyboard())
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await guard(update):
         return
-    await update.message.reply_html(HELP_TEXT)
+    await update.message.reply_html(HELP_TEXT, reply_markup=main_menu_keyboard())
+
+
+async def _check_menu_escape(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int | None:
+    """If the user tapped a main-menu button while an /addfilter wizard step
+    was expecting free text, treat it as "cancel the wizard, do that
+    instead" rather than swallowing the tap as wizard input.
+    """
+    text = (update.message.text or "").strip() if update.message else ""
+    handler = MENU_HANDLERS.get(text)
+    if handler is None:
+        return None
+    context.user_data.pop("wizard", None)
+    context.user_data.pop("new_filter_name", None)
+    await handler(update, context)
+    return ConversationHandler.END
 
 
 async def cmd_addfilter(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -361,18 +421,44 @@ async def cmd_addfilter(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         )
         return ConversationHandler.END
 
-    if len(context.args) >= 2:
-        name = context.args[0]
-        url = context.args[1]
-        return await _create_filter(update, context, chat_id, name, url)
+    args = context.args or []
+    if len(args) >= 2:
+        return await _create_filter(update, context, chat_id, args[0], args[1])
 
-    await update.message.reply_text(
-        "Как назвать фильтр? (короткое имя для команд, например «iphone-msk»)"
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🗂 Выбрать категорию", callback_data="addmethod:category")],
+            [InlineKeyboardButton("🔗 Вставить ссылку с Avito", callback_data="addmethod:url")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="wizcancel")],
+        ]
     )
-    return ASK_NAME
+    await update.message.reply_text("Как добавим фильтр?", reply_markup=kb)
+    return ADD_METHOD
+
+
+async def addmethod_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    if query.data == "wizcancel":
+        await query.edit_message_text("Ок, отменил.")
+        return ConversationHandler.END
+
+    method = query.data.split(":", 1)[1]
+    if method == "url":
+        await query.edit_message_text(
+            "Как назвать фильтр? (короткое имя для команд, например «iphone-msk»)"
+        )
+        return ASK_NAME
+
+    context.user_data["wizard"] = {}
+    await query.edit_message_text("Выбери категорию:", reply_markup=category_keyboard())
+    return PICK_CATEGORY
 
 
 async def addfilter_got_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    escape = await _check_menu_escape(update, context)
+    if escape is not None:
+        return escape
     name = update.message.text.strip()
     if not name or " " in name:
         await update.message.reply_text("Имя без пробелов, попробуй ещё раз:")
@@ -386,6 +472,9 @@ async def addfilter_got_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def addfilter_got_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    escape = await _check_menu_escape(update, context)
+    if escape is not None:
+        return escape
     url = update.message.text.strip()
     name = context.user_data.pop("new_filter_name", None)
     chat_id = update.effective_chat.id
@@ -398,23 +487,25 @@ async def addfilter_got_url(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def _create_filter(
     update: Update, context: ContextTypes.DEFAULT_TYPE, chat_id: int, name: str, url: str
 ) -> int:
+    message = update.effective_message
     if not avito_client.is_valid_avito_url(url):
-        await update.message.reply_text(
+        await message.reply_text(
             "Это не похоже на ссылку avito.ru. Пришли URL страницы поиска Avito."
         )
         return ASK_URL
 
     if db.filter_exists(chat_id, name):
-        await update.message.reply_text(
+        await message.reply_text(
             f"Фильтр «{name}» уже есть. Выбери другое имя или удали старый: /removefilter {name}"
         )
         return ConversationHandler.END
 
     db.add_filter(chat_id, name, url, DEFAULT_INTERVAL_MINUTES)
-    await update.message.reply_text(
+    await message.reply_text(
         f"Добавил фильтр «{name}», проверяю каждые {DEFAULT_INTERVAL_MINUTES} мин. "
         f"Сейчас сделаю первую проверку — она задаст точку отсчёта, без уведомлений "
-        f"о текущих объявлениях, дальше буду слать только новые."
+        f"о текущих объявлениях, дальше буду слать только новые.",
+        reply_markup=main_menu_keyboard(),
     )
     f = db.get_filter(chat_id, name)
     result = await run_check(context, f, notify_baseline=False)
@@ -422,8 +513,259 @@ async def _create_filter(
     return ConversationHandler.END
 
 
+# ---- guided category/city wizard ----------------------------------------
+
+def category_keyboard() -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(label, callback_data=f"cat:{i}")]
+        for i, (label, _) in enumerate(avito_categories.CATEGORIES)
+    ]
+    rows.append([InlineKeyboardButton("❌ Отмена", callback_data="wizcancel")])
+    return InlineKeyboardMarkup(rows)
+
+
+def subcat_keyboard(cat_idx: int) -> InlineKeyboardMarkup:
+    _, subcats = avito_categories.CATEGORIES[cat_idx]
+    rows = [
+        [InlineKeyboardButton(name, callback_data=f"subcat:{i}")]
+        for i, (name, _) in enumerate(subcats)
+    ]
+    rows.append([InlineKeyboardButton("‹ Назад", callback_data="wizback:category")])
+    return InlineKeyboardMarkup(rows)
+
+
+def city_keyboard() -> InlineKeyboardMarkup:
+    cities = avito_categories.CITIES
+    rows = []
+    for i in range(0, len(cities), 2):
+        row = [InlineKeyboardButton(cities[i][0], callback_data=f"city:{i}")]
+        if i + 1 < len(cities):
+            row.append(InlineKeyboardButton(cities[i + 1][0], callback_data=f"city:{i + 1}"))
+        rows.append(row)
+    rows.append([InlineKeyboardButton("‹ Назад", callback_data="wizback:subcat")])
+    return InlineKeyboardMarkup(rows)
+
+
+async def pick_category(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    if query.data == "wizcancel":
+        context.user_data.pop("wizard", None)
+        await query.edit_message_text("Ок, отменил.")
+        return ConversationHandler.END
+    idx = int(query.data.split(":", 1)[1])
+    label, _ = avito_categories.CATEGORIES[idx]
+    context.user_data.setdefault("wizard", {})["cat_idx"] = idx
+    await query.edit_message_text(f"{label} → выбери подкатегорию:", reply_markup=subcat_keyboard(idx))
+    return PICK_SUBCAT
+
+
+async def pick_subcat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    if query.data == "wizcancel":
+        context.user_data.pop("wizard", None)
+        await query.edit_message_text("Ок, отменил.")
+        return ConversationHandler.END
+    if query.data == "wizback:category":
+        await query.edit_message_text("Выбери категорию:", reply_markup=category_keyboard())
+        return PICK_CATEGORY
+
+    idx = int(query.data.split(":", 1)[1])
+    cat_idx = context.user_data["wizard"]["cat_idx"]
+    name, slug = avito_categories.CATEGORIES[cat_idx][1][idx]
+    context.user_data["wizard"]["subcat_name"] = name
+    context.user_data["wizard"]["subcat_slug"] = slug
+    await query.edit_message_text(f"{name} → выбери город:", reply_markup=city_keyboard())
+    return PICK_CITY
+
+
+async def pick_city(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    if query.data == "wizcancel":
+        context.user_data.pop("wizard", None)
+        await query.edit_message_text("Ок, отменил.")
+        return ConversationHandler.END
+    if query.data == "wizback:subcat":
+        cat_idx = context.user_data["wizard"]["cat_idx"]
+        await query.edit_message_text("Выбери подкатегорию:", reply_markup=subcat_keyboard(cat_idx))
+        return PICK_SUBCAT
+
+    idx = int(query.data.split(":", 1)[1])
+    city_name, city_slug = avito_categories.CITIES[idx]
+    context.user_data["wizard"]["city_name"] = city_name
+    context.user_data["wizard"]["city_slug"] = city_slug
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔎 Добавить ключевое слово", callback_data="wizkw:ask")],
+            [InlineKeyboardButton("➡️ Пропустить", callback_data="wizkw:skip")],
+        ]
+    )
+    await query.edit_message_text(
+        "Уточнить ключевым словом? Например «iphone 13».", reply_markup=kb
+    )
+    return ASK_KEYWORD
+
+
+async def ask_keyword_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    action = query.data.split(":", 1)[1]
+    if action == "skip":
+        return await _proceed_to_price(update, context)
+    await query.edit_message_text("Напиши ключевое слово (или фразу) для поиска:")
+    return ASK_KEYWORD
+
+
+async def ask_keyword_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    escape = await _check_menu_escape(update, context)
+    if escape is not None:
+        return escape
+    context.user_data["wizard"]["keyword"] = update.message.text.strip()
+    return await _proceed_to_price(update, context)
+
+
+async def _proceed_to_price(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("💰 Указать диапазон цены", callback_data="wizprice:ask")],
+            [InlineKeyboardButton("➡️ Пропустить", callback_data="wizprice:skip")],
+        ]
+    )
+    text = "Ограничить цену? Пришли потом в формате «мин макс», например «1000 50000»."
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=kb)
+    else:
+        await update.message.reply_text(text, reply_markup=kb)
+    return ASK_PRICE
+
+
+async def ask_price_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    action = query.data.split(":", 1)[1]
+    if action == "skip":
+        return await _show_preview(update, context)
+    await query.edit_message_text(
+        "Пришли диапазон цены в формате «мин макс» (0 — без ограничения), "
+        "например «1000 50000»:"
+    )
+    return ASK_PRICE
+
+
+async def ask_price_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    escape = await _check_menu_escape(update, context)
+    if escape is not None:
+        return escape
+    parts = update.message.text.split()
+    if len(parts) != 2 or not all(p.isdigit() for p in parts):
+        await update.message.reply_text(
+            "Не понял. Формат: «мин макс», например «1000 50000» или «0 0» без ограничения."
+        )
+        return ASK_PRICE
+    price_min, price_max = int(parts[0]), int(parts[1])
+    if price_max and price_min > price_max:
+        await update.message.reply_text("Минимум больше максимума, попробуй ещё раз:")
+        return ASK_PRICE
+    context.user_data["wizard"]["price_min"] = price_min
+    context.user_data["wizard"]["price_max"] = price_max
+    return await _show_preview(update, context)
+
+
+def _suggest_filter_name(chat_id: int, wiz: dict) -> str:
+    base = f"{wiz['subcat_slug'].split('_')[0]}-{wiz['city_slug'].split('-')[0]}"
+    name, n = base, 2
+    while db.filter_exists(chat_id, name):
+        name = f"{base}-{n}"
+        n += 1
+    return name
+
+
+async def _show_preview(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    wiz = context.user_data["wizard"]
+    url = avito_categories.build_search_url(
+        wiz["city_slug"],
+        wiz["subcat_slug"],
+        wiz.get("keyword", ""),
+        wiz.get("price_min", 0),
+        wiz.get("price_max", 0),
+    )
+    wiz["url"] = url
+    chat_id = update.effective_chat.id
+    name = _suggest_filter_name(chat_id, wiz)
+    wiz["suggested_name"] = name
+
+    lines = [f"Категория: {wiz['subcat_name']}", f"Город: {wiz['city_name']}"]
+    if wiz.get("keyword"):
+        lines.append(f"Ключевое слово: {wiz['keyword']}")
+    if wiz.get("price_min") or wiz.get("price_max"):
+        lo, hi = wiz.get("price_min") or 0, wiz.get("price_max") or "∞"
+        lines.append(f"Цена: {lo}–{hi} ₽")
+    lines.append(f"\nИмя фильтра: «{name}»")
+    lines.append(
+        "\n⚠️ Список категорий собран вручную и не проверен на актуальность — "
+        "нажми «Проверить на Avito» перед сохранением, чтобы убедиться, что "
+        "ссылка открывает именно то, что нужно."
+    )
+
+    kb = InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔗 Проверить на Avito", url=url)],
+            [InlineKeyboardButton(f"✅ Сохранить как «{name}»", callback_data="wizsave:auto")],
+            [InlineKeyboardButton("✏️ Своё имя", callback_data="wizsave:custom")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="wizcancel")],
+        ]
+    )
+    text = "\n".join(lines)
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=kb)
+    else:
+        await update.message.reply_text(text, reply_markup=kb)
+    return PREVIEW
+
+
+async def preview_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    query = update.callback_query
+    await query.answer()
+    if query.data == "wizcancel":
+        context.user_data.pop("wizard", None)
+        await query.edit_message_text("Ок, отменил.")
+        return ConversationHandler.END
+
+    action = query.data.split(":", 1)[1]
+    if action == "custom":
+        await query.edit_message_reply_markup(reply_markup=None)
+        await context.bot.send_message(query.message.chat_id, "Напиши имя фильтра (без пробелов):")
+        return ASK_CUSTOM_NAME
+
+    await query.edit_message_reply_markup(reply_markup=None)
+    wiz = context.user_data.pop("wizard")
+    return await _create_filter(update, context, query.message.chat_id, wiz["suggested_name"], wiz["url"])
+
+
+async def custom_name_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    escape = await _check_menu_escape(update, context)
+    if escape is not None:
+        return escape
+    name = update.message.text.strip()
+    if not name or " " in name:
+        await update.message.reply_text("Имя без пробелов, попробуй ещё раз:")
+        return ASK_CUSTOM_NAME
+    chat_id = update.effective_chat.id
+    if db.filter_exists(chat_id, name):
+        await update.message.reply_text(f"Фильтр «{name}» уже есть, придумай другое имя:")
+        return ASK_CUSTOM_NAME
+    wiz = context.user_data.pop("wizard", None)
+    if not wiz:
+        await update.message.reply_text("Что-то пошло не так, начни заново: /addfilter")
+        return ConversationHandler.END
+    return await _create_filter(update, context, chat_id, name, wiz["url"])
+
+
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data.pop("new_filter_name", None)
+    context.user_data.pop("wizard", None)
     await update.message.reply_text("Ок, отменил.")
     return ConversationHandler.END
 
@@ -754,13 +1096,22 @@ async def cmd_import_document(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
 
+FILTER_ACTIONS = {"pause", "resume", "check", "delrequest", "delconfirm", "delcancel", "interval", "setiv", "back"}
+
+
 async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
     if not chat_allowed(query.message.chat_id):
         return
-    action, _, raw_id = query.data.partition(":")
-    filter_id = int(raw_id)
+    parts = query.data.split(":")
+    action = parts[0]
+    if action not in FILTER_ACTIONS or len(parts) < 2:
+        return
+    try:
+        filter_id = int(parts[1])
+    except ValueError:
+        return
     f = db.get_filter_by_id(filter_id)
     if not f or f.chat_id != query.message.chat_id:
         await query.edit_message_text("Фильтр не найден (возможно, уже удалён).")
@@ -793,6 +1144,23 @@ async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     elif action == "delcancel":
         pass
+    elif action == "interval":
+        await query.edit_message_text(
+            describe_filter(f) + "\n\nВыбери интервал проверки:",
+            parse_mode=ParseMode.HTML,
+            reply_markup=interval_keyboard(f),
+        )
+        return
+    elif action == "setiv":
+        if len(parts) < 3:
+            return
+        try:
+            minutes = int(parts[2])
+        except ValueError:
+            return
+        db.set_interval(f.chat_id, f.name, minutes)
+    elif action == "back":
+        pass
 
     f = db.get_filter_by_id(filter_id)
     if f:
@@ -805,6 +1173,17 @@ async def on_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not await guard(update):
         return
     await update.message.reply_text("Не понял команду. Список команд: /help")
+
+
+MENU_HANDLERS.update(
+    {
+        MENU_LIST: cmd_myfilters,
+        MENU_STATUS: cmd_status,
+        MENU_STATS: cmd_stats,
+        MENU_EXPORT: cmd_export,
+        MENU_HELP: cmd_help,
+    }
+)
 
 
 BOT_COMMANDS = [
@@ -831,6 +1210,10 @@ async def _post_init(application: Application) -> None:
     await application.bot.set_my_commands(BOT_COMMANDS)
 
 
+def _menu_text_filter(text: str) -> filters.BaseFilter:
+    return filters.Regex(f"^{re.escape(text)}$")
+
+
 def build_app() -> Application:
     if not TELEGRAM_BOT_TOKEN:
         raise SystemExit("TELEGRAM_BOT_TOKEN is not set")
@@ -838,10 +1221,31 @@ def build_app() -> Application:
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(_post_init).build()
 
     conv = ConversationHandler(
-        entry_points=[CommandHandler("addfilter", cmd_addfilter)],
+        entry_points=[
+            CommandHandler("addfilter", cmd_addfilter),
+            MessageHandler(_menu_text_filter(MENU_ADD), cmd_addfilter),
+        ],
         states={
+            ADD_METHOD: [CallbackQueryHandler(addmethod_chosen, pattern=r"^(addmethod:|wizcancel$)")],
             ASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, addfilter_got_name)],
             ASK_URL: [MessageHandler(filters.TEXT & ~filters.COMMAND, addfilter_got_url)],
+            PICK_CATEGORY: [CallbackQueryHandler(pick_category, pattern=r"^(cat:|wizcancel$)")],
+            PICK_SUBCAT: [
+                CallbackQueryHandler(pick_subcat, pattern=r"^(subcat:|wizback:category$|wizcancel$)")
+            ],
+            PICK_CITY: [
+                CallbackQueryHandler(pick_city, pattern=r"^(city:|wizback:subcat$|wizcancel$)")
+            ],
+            ASK_KEYWORD: [
+                CallbackQueryHandler(ask_keyword_button, pattern=r"^wizkw:"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, ask_keyword_text),
+            ],
+            ASK_PRICE: [
+                CallbackQueryHandler(ask_price_button, pattern=r"^wizprice:"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, ask_price_text),
+            ],
+            PREVIEW: [CallbackQueryHandler(preview_action, pattern=r"^(wizsave:|wizcancel$)")],
+            ASK_CUSTOM_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, custom_name_text)],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel)],
     )
@@ -849,6 +1253,11 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(conv)
+    app.add_handler(MessageHandler(_menu_text_filter(MENU_LIST), cmd_myfilters))
+    app.add_handler(MessageHandler(_menu_text_filter(MENU_STATUS), cmd_status))
+    app.add_handler(MessageHandler(_menu_text_filter(MENU_STATS), cmd_stats))
+    app.add_handler(MessageHandler(_menu_text_filter(MENU_EXPORT), cmd_export))
+    app.add_handler(MessageHandler(_menu_text_filter(MENU_HELP), cmd_help))
     app.add_handler(CommandHandler("myfilters", cmd_myfilters))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("pause", cmd_pause))
@@ -865,7 +1274,7 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("broadcast", cmd_broadcast))
     app.add_handler(CommandHandler("export", cmd_export))
     app.add_handler(MessageHandler(filters.Document.ALL, cmd_import_document))
-    app.add_handler(CallbackQueryHandler(on_button))
+    app.add_handler(CallbackQueryHandler(on_button, pattern=rf"^({'|'.join(FILTER_ACTIONS)}):"))
     app.add_handler(MessageHandler(filters.COMMAND, on_unknown))
 
     if app.job_queue is not None:
