@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
-"""Polls configured Avito search URLs and pushes new listings to Telegram.
+"""Cron-style Avito monitor: reads config.json, pushes new listings to one
+fixed Telegram chat. Intended for a scheduled runner (e.g. GitHub Actions)
+where filters are edited by hand in config.json.
 
-Run periodically (e.g. via a GitHub Actions cron job). State (which listing
-ids have already been seen/notified) is persisted per filter under state/.
+For an interactive multi-user bot where filters are managed via Telegram
+commands, use bot.py instead.
 """
 from __future__ import annotations
 
 import html
 import json
 import os
-import random
-import re
 import sys
 import time
-import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import requests
+
+import avito_client
+from avito_client import Listing
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = Path(os.environ.get("AVITO_CONFIG", BASE_DIR / "config.json"))
@@ -27,26 +29,8 @@ TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
 MAX_SEEN_IDS = 1000
-MAX_FETCH_RETRIES = 4
 ALERT_AFTER_FAILURES = 3
 ALERT_COOLDOWN_SECONDS = 6 * 3600
-
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
-    "Mozilla/5.0 (X11; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0",
-]
-
-ITEM_ID_RE = re.compile(r"_(\d{6,})(?:[/?]|$)")
-
-
-@dataclass
-class Listing:
-    id: str
-    title: str
-    url: str
-    price: str = ""
-    image: str = ""
 
 
 @dataclass
@@ -105,106 +89,6 @@ def save_state(name: str, state: FilterState) -> None:
     )
 
 
-def fetch(url: str) -> str | None:
-    session = requests.Session()
-    for attempt in range(1, MAX_FETCH_RETRIES + 1):
-        headers = {
-            "User-Agent": random.choice(USER_AGENTS),
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-        }
-        try:
-            resp = session.get(url, headers=headers, timeout=20)
-        except requests.RequestException as exc:
-            log(f"  fetch attempt {attempt} failed: {exc}")
-            resp = None
-
-        if resp is not None and resp.status_code == 200 and "data-marker" in resp.text:
-            return resp.text
-
-        status = resp.status_code if resp is not None else "network-error"
-        log(f"  fetch attempt {attempt} got status={status}")
-
-        if attempt < MAX_FETCH_RETRIES:
-            time.sleep(2 ** attempt + random.uniform(0, 1.5))
-
-    return None
-
-
-def parse_listings(html_text: str) -> list[Listing]:
-    listings = parse_via_jsonld(html_text)
-    if listings:
-        return listings
-    return parse_via_data_marker(html_text)
-
-
-def parse_via_jsonld(html_text: str) -> list[Listing]:
-    listings: list[Listing] = []
-    for match in re.finditer(
-        r'<script[^>]+type="application/ld\+json"[^>]*>(.*?)</script>', html_text, re.S
-    ):
-        try:
-            data = json.loads(match.group(1))
-        except json.JSONDecodeError:
-            continue
-        items = data.get("itemListElement") if isinstance(data, dict) else None
-        if not items:
-            continue
-        for entry in items:
-            item = entry.get("item", entry) if isinstance(entry, dict) else None
-            if not item:
-                continue
-            url = item.get("url") or item.get("@id") or ""
-            item_id = extract_item_id(url)
-            if not item_id:
-                continue
-            price = ""
-            offers = item.get("offers")
-            if isinstance(offers, dict):
-                price = str(offers.get("price", "") or "")
-            listings.append(
-                Listing(
-                    id=item_id,
-                    title=html.unescape(item.get("name", "")).strip(),
-                    url=url,
-                    price=price,
-                    image=item.get("image", "") if isinstance(item.get("image"), str) else "",
-                )
-            )
-    return listings
-
-
-def parse_via_data_marker(html_text: str) -> list[Listing]:
-    listings: list[Listing] = []
-    for block in re.finditer(r'data-marker="item"[^>]*data-item-id="(\d+)"', html_text):
-        item_id = block.group(1)
-        window_start = block.start()
-        window = html_text[window_start : window_start + 4000]
-
-        title_match = re.search(
-            r'data-marker="item-title"[^>]*(?:title="([^"]*)")?[^>]*>([^<]*)', window
-        )
-        title = ""
-        if title_match:
-            title = title_match.group(1) or title_match.group(2) or ""
-        title = html.unescape(title).strip()
-
-        href_match = re.search(r'href="(/[^"]+_' + item_id + r'[^"]*)"', window)
-        url = urllib.parse.urljoin("https://www.avito.ru", href_match.group(1)) if href_match else ""
-
-        price_match = re.search(r'data-marker="item-price"[^>]*>\s*([\d\s ]+)', window)
-        price = re.sub(r"[\s ]", "", price_match.group(1)) if price_match else ""
-
-        if title and url:
-            listings.append(Listing(id=item_id, title=title, url=url, price=price))
-    return listings
-
-
-def extract_item_id(url: str) -> str | None:
-    match = ITEM_ID_RE.search(url)
-    return match.group(1) if match else None
-
-
 def send_telegram_message(text: str) -> bool:
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         log("  TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set, skipping send")
@@ -241,6 +125,13 @@ def format_listing_message(filter_name: str, listing: Listing) -> str:
     )
 
 
+def fetch(url: str) -> str | None:
+    html_text, status = avito_client.fetch(url)
+    if html_text is None:
+        log(f"  fetch failed, last status={status}")
+    return html_text
+
+
 def process_filter(name: str, url: str) -> None:
     log(f"[{name}] fetching {url}")
     state = load_state(name)
@@ -264,7 +155,7 @@ def process_filter(name: str, url: str) -> None:
         return
 
     state.consecutive_failures = 0
-    listings = parse_listings(html_text)
+    listings = avito_client.parse_listings(html_text)
     log(f"[{name}] parsed {len(listings)} listings")
 
     if not listings:

@@ -1,0 +1,10 @@
+services:
+  avito-bot:
+    build: .
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      # Optional: restrict who can use the bot, comma-separated chat ids.
+      # AVITO_ALLOWED_CHAT_IDS: "123456789"
+    volumes:
+      - ./bot:/app/bot
