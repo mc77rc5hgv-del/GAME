@@ -1,0 +1,8 @@
+{
+  "filters": [
+    {
+      "name": "iphone-moskva",
+      "url": "https://www.avito.ru/moskva?q=iphone&pmin=10000&pmax=50000"
+    }
+  ]
+}
