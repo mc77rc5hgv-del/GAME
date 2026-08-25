@@ -13,12 +13,14 @@ from __future__ import annotations
 
 import asyncio
 import html
+import io
+import json
 import logging
 import os
 import time
 from pathlib import Path
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, InputFile, Update
 from telegram.constants import ParseMode
 from telegram.ext import (
     Application,
@@ -92,31 +94,56 @@ def format_listing_message(filter_name: str, listing: avito_client.Listing) -> s
     )
 
 
-async def send_listing(
-    context: ContextTypes.DEFAULT_TYPE, chat_id: int, filter_name: str, listing: avito_client.Listing
-) -> None:
-    text = format_listing_message(filter_name, listing)
-    keyboard = InlineKeyboardMarkup(
-        [[InlineKeyboardButton("🔗 Открыть на Avito", url=listing.url)]]
+def format_price_drop_message(filter_name: str, listing: avito_client.Listing, old_price: int) -> str:
+    title = html.escape(listing.title or "Без названия")
+    return (
+        f"📉 <b>{title}</b>\n"
+        f"Было: {old_price} ₽ → стало: {listing.price} ₽\n"
+        f"🔎 Фильтр: {html.escape(filter_name)}\n"
+        f"{html.escape(listing.url)}"
     )
-    if listing.image:
+
+
+async def send_notification(
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int, text: str, image: str, url: str
+) -> None:
+    keyboard = InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Открыть на Avito", url=url)]])
+    if image:
         try:
             await context.bot.send_photo(
                 chat_id=chat_id,
-                photo=listing.image,
+                photo=image,
                 caption=text,
                 parse_mode=ParseMode.HTML,
                 reply_markup=keyboard,
             )
             return
         except Exception:
-            logger.warning("send_photo failed for %s, falling back to text", listing.url)
+            logger.warning("send_photo failed for %s, falling back to text", url)
     await context.bot.send_message(
         chat_id=chat_id,
         text=text,
         parse_mode=ParseMode.HTML,
         reply_markup=keyboard,
     )
+
+
+async def send_listing(
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int, filter_name: str, listing: avito_client.Listing
+) -> None:
+    text = format_listing_message(filter_name, listing)
+    await send_notification(context, chat_id, text, listing.image, listing.url)
+
+
+async def send_price_drop(
+    context: ContextTypes.DEFAULT_TYPE,
+    chat_id: int,
+    filter_name: str,
+    listing: avito_client.Listing,
+    old_price: int,
+) -> None:
+    text = format_price_drop_message(filter_name, listing, old_price)
+    await send_notification(context, chat_id, text, listing.image, listing.url)
 
 
 def filter_keyboard(f: Filter) -> InlineKeyboardMarkup:
@@ -213,8 +240,17 @@ async def run_check(context: ContextTypes.DEFAULT_TYPE, f: Filter, notify_baseli
         all_listings, f.exclude_keyword_list(), f.price_min, f.price_max
     )
     seen = db.get_seen_ids(f.id)
+    prev_prices = db.get_seen_prices(f.id)
     is_first_run = len(seen) == 0
     new_listings = [item for item in listings if item.id not in seen]
+    price_drops = [
+        (item, int(prev_prices[item.id]))
+        for item in listings
+        if item.id in seen
+        and item.price.isdigit()
+        and prev_prices.get(item.id, "").isdigit()
+        and int(item.price) < int(prev_prices[item.id])
+    ]
 
     sent = 0
     if not is_first_run:
@@ -232,6 +268,10 @@ async def run_check(context: ContextTypes.DEFAULT_TYPE, f: Filter, notify_baseli
                     f"увидеть все."
                 ),
             )
+        for item, old_price in price_drops[:MAX_NOTIFY_PER_CHECK]:
+            await send_price_drop(context, f.chat_id, f.name, item, old_price)
+            sent += 1
+            await asyncio.sleep(1)
     elif notify_baseline:
         await context.bot.send_message(
             chat_id=f.chat_id,
@@ -241,9 +281,12 @@ async def run_check(context: ContextTypes.DEFAULT_TYPE, f: Filter, notify_baseli
             ),
         )
 
-    db.add_seen_ids(f.id, [item.id for item in all_listings])
+    db.record_seen(f.id, [(item.id, item.price) for item in all_listings])
     db.mark_checked(f.id, success=True, new_found=sent)
-    return f"ok, найдено {len(listings)}, новых отправлено {sent}"
+    return (
+        f"ok, найдено {len(listings)}, новых отправлено {sent}, "
+        f"снижений цены: {len(price_drops)}"
+    )
 
 
 async def poll_due_filters(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -282,8 +325,13 @@ HELP_TEXT = (
     "/setkeywords имя слово1,слово2 — скрывать объявления с этими словами в заголовке "
     "(«-» чтобы очистить)\n"
     "/setprice имя мин макс — ограничить диапазон цены (0 — без ограничения)\n\n"
+    "<b>Резервная копия:</b>\n"
+    "/export — прислать все фильтры файлом JSON\n"
+    "пришли такой файл боту — импортирую фильтры из него\n\n"
     "Ссылка для фильтра — это обычный URL поиска Avito: настрой на сайте нужный "
-    "город/цену/категорию и скопируй адрес из браузера."
+    "город/цену/категорию и скопируй адрес из браузера.\n\n"
+    "Кстати, я слежу и за снижением цены: если у уже виденного объявления цена "
+    "упала — тоже пришлю уведомление."
 )
 
 
@@ -627,6 +675,85 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+def _filter_to_export_dict(f: Filter) -> dict:
+    return {
+        "name": f.name,
+        "url": f.url,
+        "interval_minutes": f.interval_minutes,
+        "exclude_keywords": f.exclude_keywords,
+        "price_min": f.price_min,
+        "price_max": f.price_max,
+    }
+
+
+async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await guard(update):
+        return
+    chat_id = update.effective_chat.id
+    items = db.list_filters(chat_id)
+    if not items:
+        await update.message.reply_text("Фильтров пока нет, нечего экспортировать.")
+        return
+    payload = json.dumps([_filter_to_export_dict(f) for f in items], ensure_ascii=False, indent=2)
+    await update.message.reply_document(
+        document=InputFile(io.BytesIO(payload.encode("utf-8")), filename="avito_filters.json"),
+        caption=f"Экспортировано {len(items)} фильтр(ов). Пришли этот файл боту, чтобы восстановить.",
+    )
+
+
+async def cmd_import_document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await guard(update):
+        return
+    document = update.message.document
+    if not document or not (document.file_name or "").lower().endswith(".json"):
+        return
+
+    chat_id = update.effective_chat.id
+    tg_file = await context.bot.get_file(document.file_id)
+    raw = await tg_file.download_as_bytearray()
+    try:
+        items = json.loads(bytes(raw).decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        await update.message.reply_text("Не смог разобрать файл — это не тот JSON.")
+        return
+    if not isinstance(items, list):
+        await update.message.reply_text("Ожидался список фильтров в JSON.")
+        return
+
+    added, skipped, invalid = 0, 0, 0
+    for entry in items:
+        if db.count_filters(chat_id) >= MAX_FILTERS_PER_CHAT:
+            break
+        if not isinstance(entry, dict):
+            invalid += 1
+            continue
+        name = str(entry.get("name", "")).strip()
+        url = str(entry.get("url", "")).strip()
+        if not name or not avito_client.is_valid_avito_url(url):
+            invalid += 1
+            continue
+        if db.filter_exists(chat_id, name):
+            skipped += 1
+            continue
+        interval = entry.get("interval_minutes", DEFAULT_INTERVAL_MINUTES)
+        interval = interval if isinstance(interval, int) and interval >= MIN_INTERVAL_MINUTES else DEFAULT_INTERVAL_MINUTES
+        db.add_filter(chat_id, name, url, interval)
+        keywords = entry.get("exclude_keywords", "")
+        if isinstance(keywords, str) and keywords:
+            db.set_exclude_keywords(chat_id, name, keywords)
+        price_min = entry.get("price_min", 0)
+        price_max = entry.get("price_max", 0)
+        if isinstance(price_min, int) and isinstance(price_max, int) and (price_min or price_max):
+            db.set_price_range(chat_id, name, price_min, price_max)
+        added += 1
+
+    await update.message.reply_text(
+        f"Импорт завершён: добавлено {added}, пропущено (уже есть) {skipped}, "
+        f"некорректных записей {invalid}. Первую проверку каждый новый фильтр сделает "
+        f"сам в течение {POLL_INTERVAL_SECONDS} сек — можно и вручную: /checkall."
+    )
+
+
 async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
@@ -680,11 +807,35 @@ async def on_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text("Не понял команду. Список команд: /help")
 
 
+BOT_COMMANDS = [
+    BotCommand("addfilter", "добавить фильтр"),
+    BotCommand("myfilters", "список фильтров"),
+    BotCommand("status", "когда следующая проверка"),
+    BotCommand("check", "проверить фильтр сейчас"),
+    BotCommand("checkall", "проверить все фильтры"),
+    BotCommand("pause", "поставить фильтр на паузу"),
+    BotCommand("resume", "возобновить фильтр"),
+    BotCommand("removefilter", "удалить фильтр"),
+    BotCommand("setinterval", "периодичность проверки"),
+    BotCommand("setkeywords", "стоп-слова в заголовке"),
+    BotCommand("setprice", "диапазон цены"),
+    BotCommand("renamefilter", "переименовать фильтр"),
+    BotCommand("seturl", "заменить ссылку фильтра"),
+    BotCommand("export", "выгрузить фильтры в JSON"),
+    BotCommand("stats", "статистика"),
+    BotCommand("help", "список команд"),
+]
+
+
+async def _post_init(application: Application) -> None:
+    await application.bot.set_my_commands(BOT_COMMANDS)
+
+
 def build_app() -> Application:
     if not TELEGRAM_BOT_TOKEN:
         raise SystemExit("TELEGRAM_BOT_TOKEN is not set")
 
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(_post_init).build()
 
     conv = ConversationHandler(
         entry_points=[CommandHandler("addfilter", cmd_addfilter)],
@@ -712,6 +863,8 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("checkall", cmd_checkall))
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("broadcast", cmd_broadcast))
+    app.add_handler(CommandHandler("export", cmd_export))
+    app.add_handler(MessageHandler(filters.Document.ALL, cmd_import_document))
     app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(MessageHandler(filters.COMMAND, on_unknown))
 

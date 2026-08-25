@@ -41,11 +41,12 @@ CREATE INDEX IF NOT EXISTS idx_seen_items_filter ON seen_items(filter_id);
 
 # Columns added after the initial release. Each is applied with a plain
 # ALTER TABLE if missing, so existing bot.db files upgrade in place.
-MIGRATIONS: list[tuple[str, str]] = [
-    ("exclude_keywords", "ALTER TABLE filters ADD COLUMN exclude_keywords TEXT NOT NULL DEFAULT ''"),
-    ("price_min", "ALTER TABLE filters ADD COLUMN price_min INTEGER NOT NULL DEFAULT 0"),
-    ("price_max", "ALTER TABLE filters ADD COLUMN price_max INTEGER NOT NULL DEFAULT 0"),
-    ("auto_paused", "ALTER TABLE filters ADD COLUMN auto_paused INTEGER NOT NULL DEFAULT 0"),
+MIGRATIONS: list[tuple[str, str, str]] = [
+    ("filters", "exclude_keywords", "ALTER TABLE filters ADD COLUMN exclude_keywords TEXT NOT NULL DEFAULT ''"),
+    ("filters", "price_min", "ALTER TABLE filters ADD COLUMN price_min INTEGER NOT NULL DEFAULT 0"),
+    ("filters", "price_max", "ALTER TABLE filters ADD COLUMN price_max INTEGER NOT NULL DEFAULT 0"),
+    ("filters", "auto_paused", "ALTER TABLE filters ADD COLUMN auto_paused INTEGER NOT NULL DEFAULT 0"),
+    ("seen_items", "last_price", "ALTER TABLE seen_items ADD COLUMN last_price TEXT NOT NULL DEFAULT ''"),
 ]
 
 MAX_SEEN_PER_FILTER = 500
@@ -101,9 +102,12 @@ class Database:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(SCHEMA)
-            existing = {row["name"] for row in conn.execute("PRAGMA table_info(filters)")}
-            for column, statement in MIGRATIONS:
-                if column not in existing:
+            existing_by_table = {
+                table: {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+                for table in ("filters", "seen_items")
+            }
+            for table, column, statement in MIGRATIONS:
+                if column not in existing_by_table[table]:
                     conn.execute(statement)
 
     @contextmanager
@@ -282,16 +286,36 @@ class Database:
             ).fetchall()
             return {r["item_id"] for r in rows}
 
-    def add_seen_ids(self, filter_id: int, item_ids: list[str]) -> None:
-        if not item_ids:
+    def get_seen_prices(self, filter_id: int) -> dict[str, str]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT item_id, last_price FROM seen_items WHERE filter_id = ?", (filter_id,)
+            ).fetchall()
+            return {r["item_id"]: r["last_price"] for r in rows}
+
+    def record_seen(self, filter_id: int, items: list[tuple[str, str]]) -> None:
+        """Mark items as seen (or re-seen) with their current price.
+
+        Uses upsert rather than insert-or-ignore so seen_at keeps advancing
+        for listings that are still live on every check — otherwise a
+        long-lived listing would eventually be the oldest row and get
+        pruned by the MAX_SEEN_PER_FILTER cap while still on the site,
+        causing it to be re-notified as "new" once it fell out.
+        """
+        if not items:
             return
         now = time.time()
         with self._connect() as conn:
             conn.executemany(
-                "INSERT OR IGNORE INTO seen_items (filter_id, item_id, seen_at) VALUES (?, ?, ?)",
-                [(filter_id, item_id, now) for item_id in item_ids],
+                """
+                INSERT INTO seen_items (filter_id, item_id, seen_at, last_price)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(filter_id, item_id)
+                DO UPDATE SET seen_at = excluded.seen_at, last_price = excluded.last_price
+                """,
+                [(filter_id, item_id, now, price) for item_id, price in items],
             )
-            # keep only the most recent MAX_SEEN_PER_FILTER rows per filter
+            # keep only the most recently (re-)seen MAX_SEEN_PER_FILTER rows per filter
             conn.execute(
                 """
                 DELETE FROM seen_items
