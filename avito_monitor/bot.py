@@ -44,11 +44,15 @@ MAX_FILTERS_PER_CHAT = int(os.environ.get("AVITO_MAX_FILTERS_PER_CHAT", "10"))
 MAX_NOTIFY_PER_CHECK = int(os.environ.get("AVITO_MAX_NOTIFY_PER_CHECK", "15"))
 ALERT_AFTER_FAILURES = int(os.environ.get("AVITO_ALERT_AFTER_FAILURES", "3"))
 ALERT_COOLDOWN_SECONDS = int(os.environ.get("AVITO_ALERT_COOLDOWN_SECONDS", str(6 * 3600)))
+AUTOPAUSE_AFTER_FAILURES = int(os.environ.get("AVITO_AUTOPAUSE_AFTER_FAILURES", "20"))
 
 _allowed_raw = os.environ.get("AVITO_ALLOWED_CHAT_IDS", "").strip()
 ALLOWED_CHAT_IDS: set[int] | None = (
     {int(x) for x in _allowed_raw.split(",") if x.strip()} if _allowed_raw else None
 )
+
+_admin_raw = os.environ.get("AVITO_ADMIN_CHAT_ID", "").strip()
+ADMIN_CHAT_ID: int | None = int(_admin_raw) if _admin_raw else None
 
 ASK_NAME, ASK_URL = range(2)
 
@@ -88,6 +92,33 @@ def format_listing_message(filter_name: str, listing: avito_client.Listing) -> s
     )
 
 
+async def send_listing(
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int, filter_name: str, listing: avito_client.Listing
+) -> None:
+    text = format_listing_message(filter_name, listing)
+    keyboard = InlineKeyboardMarkup(
+        [[InlineKeyboardButton("🔗 Открыть на Avito", url=listing.url)]]
+    )
+    if listing.image:
+        try:
+            await context.bot.send_photo(
+                chat_id=chat_id,
+                photo=listing.image,
+                caption=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard,
+            )
+            return
+        except Exception:
+            logger.warning("send_photo failed for %s, falling back to text", listing.url)
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboard,
+    )
+
+
 def filter_keyboard(f: Filter) -> InlineKeyboardMarkup:
     toggle = ("⏸ Пауза", f"pause:{f.id}") if f.active else ("▶️ Возобновить", f"resume:{f.id}")
     return InlineKeyboardMarkup(
@@ -102,19 +133,32 @@ def filter_keyboard(f: Filter) -> InlineKeyboardMarkup:
 
 
 def describe_filter(f: Filter) -> str:
-    status = "🟢 активен" if f.active else "⏸ на паузе"
+    if f.auto_paused:
+        status = "⏸ автопауза (блокировка сайтом)"
+    elif f.active:
+        status = "🟢 активен"
+    else:
+        status = "⏸ на паузе"
     fail_note = ""
-    if f.consecutive_failures >= ALERT_AFTER_FAILURES:
+    if f.active and not f.auto_paused and f.consecutive_failures >= ALERT_AFTER_FAILURES:
         fail_note = " ⚠️ похоже на блокировку сайтом"
     last_found = (
         time.strftime("%d.%m %H:%M", time.localtime(f.last_found_at))
         if f.last_found_at
         else "пока не было"
     )
+    extra = []
+    if f.exclude_keyword_list():
+        extra.append(f"исключая: {html.escape(', '.join(f.exclude_keyword_list()))}")
+    if f.price_min or f.price_max:
+        lo = f.price_min or "0"
+        hi = f.price_max or "∞"
+        extra.append(f"цена: {lo}–{hi} ₽")
+    extra_line = f"\n{' · '.join(extra)}" if extra else ""
     return (
         f"<b>{html.escape(f.name)}</b> — {status}{fail_note}\n"
         f"Интервал: {f.interval_minutes} мин · найдено всего: {f.total_found}\n"
-        f"Последняя находка: {last_found}\n"
+        f"Последняя находка: {last_found}{extra_line}\n"
         f"{html.escape(f.url)}"
     )
 
@@ -133,6 +177,20 @@ async def run_check(context: ContextTypes.DEFAULT_TYPE, f: Filter, notify_baseli
         db.mark_checked(f.id, success=False)
         updated = db.get_filter_by_id(f.id)
         now = time.time()
+
+        if updated.consecutive_failures >= AUTOPAUSE_AFTER_FAILURES:
+            db.set_auto_paused(f.id, True)
+            await context.bot.send_message(
+                chat_id=f.chat_id,
+                text=(
+                    f"⏸ Фильтр «{html.escape(f.name)}» автоматически поставлен на паузу "
+                    f"после {updated.consecutive_failures} неудачных попыток подряд, "
+                    f"чтобы не долбить сайт впустую. Когда решишь проблему (см. README про "
+                    f"блокировку антиботом) — включи заново командой /resume {html.escape(f.name)}."
+                ),
+            )
+            return f"автопауза после {updated.consecutive_failures} сбоев"
+
         if (
             updated.consecutive_failures >= ALERT_AFTER_FAILURES
             and now - updated.last_alert_at > ALERT_COOLDOWN_SECONDS
@@ -150,7 +208,10 @@ async def run_check(context: ContextTypes.DEFAULT_TYPE, f: Filter, notify_baseli
             db.mark_alerted(f.id)
         return f"не удалось загрузить (status={status})"
 
-    listings = avito_client.parse_listings(html_text)
+    all_listings = avito_client.parse_listings(html_text)
+    listings = avito_client.apply_client_filters(
+        all_listings, f.exclude_keyword_list(), f.price_min, f.price_max
+    )
     seen = db.get_seen_ids(f.id)
     is_first_run = len(seen) == 0
     new_listings = [item for item in listings if item.id not in seen]
@@ -159,11 +220,7 @@ async def run_check(context: ContextTypes.DEFAULT_TYPE, f: Filter, notify_baseli
     if not is_first_run:
         to_send = list(reversed(new_listings))
         for item in to_send[:MAX_NOTIFY_PER_CHECK]:
-            await context.bot.send_message(
-                chat_id=f.chat_id,
-                text=format_listing_message(f.name, item),
-                parse_mode=ParseMode.HTML,
-            )
+            await send_listing(context, f.chat_id, f.name, item)
             sent += 1
             await asyncio.sleep(1)
         if len(to_send) > MAX_NOTIFY_PER_CHECK:
@@ -184,7 +241,7 @@ async def run_check(context: ContextTypes.DEFAULT_TYPE, f: Filter, notify_baseli
             ),
         )
 
-    db.add_seen_ids(f.id, [item.id for item in listings])
+    db.add_seen_ids(f.id, [item.id for item in all_listings])
     db.mark_checked(f.id, success=True, new_found=sent)
     return f"ok, найдено {len(listings)}, новых отправлено {sent}"
 
@@ -206,18 +263,25 @@ async def poll_due_filters(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 HELP_TEXT = (
     "Я слежу за поиском на Avito и присылаю новые объявления по твоим фильтрам.\n\n"
-    "<b>Команды:</b>\n"
+    "<b>Основное:</b>\n"
     "/addfilter — добавить фильтр (пошагово спрошу имя и ссылку)\n"
     "/addfilter имя ссылка — добавить фильтр одной командой\n"
     "/myfilters — список фильтров с кнопками управления\n"
+    "/status — когда следующая проверка по каждому фильтру\n"
     "/pause имя — поставить фильтр на паузу\n"
     "/resume имя — возобновить фильтр\n"
     "/removefilter имя — удалить фильтр\n"
-    "/setinterval имя минуты — задать периодичность проверки\n"
     "/check имя — проверить фильтр прямо сейчас\n"
     "/checkall — проверить все свои фильтры сейчас\n"
     "/stats — статистика бота\n"
     "/cancel — отменить текущий диалог\n\n"
+    "<b>Тонкая настройка фильтра:</b>\n"
+    "/setinterval имя минуты — периодичность проверки\n"
+    "/renamefilter старое новое — переименовать\n"
+    "/seturl имя ссылка — заменить ссылку поиска\n"
+    "/setkeywords имя слово1,слово2 — скрывать объявления с этими словами в заголовке "
+    "(«-» чтобы очистить)\n"
+    "/setprice имя мин макс — ограничить диапазон цены (0 — без ограничения)\n\n"
     "Ссылка для фильтра — это обычный URL поиска Avito: настрой на сайте нужный "
     "город/цену/категорию и скопируй адрес из браузера."
 )
@@ -389,6 +453,135 @@ async def cmd_setinterval(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
 
+async def cmd_renamefilter(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await guard(update):
+        return
+    chat_id = update.effective_chat.id
+    if len(context.args) < 2:
+        await update.message.reply_text("Использование: /renamefilter старое_имя новое_имя")
+        return
+    old_name, new_name = context.args[0], context.args[1]
+    if db.filter_exists(chat_id, new_name):
+        await update.message.reply_text(f"Фильтр «{new_name}» уже существует.")
+        return
+    ok = db.rename_filter(chat_id, old_name, new_name)
+    await update.message.reply_text(
+        f"Переименовал в «{new_name}»." if ok else "Такого фильтра нет."
+    )
+
+
+async def cmd_seturl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await guard(update):
+        return
+    chat_id = update.effective_chat.id
+    if len(context.args) < 2:
+        await update.message.reply_text("Использование: /seturl имя_фильтра новая_ссылка")
+        return
+    name, url = context.args[0], context.args[1]
+    if not avito_client.is_valid_avito_url(url):
+        await update.message.reply_text("Это не похоже на ссылку avito.ru.")
+        return
+    ok = db.set_url(chat_id, name, url)
+    await update.message.reply_text(
+        "Ссылка обновлена. История уже виденных объявлений сохранена, "
+        "первый уведомлений по новым критериям может не быть, пока не появится что-то новое."
+        if ok
+        else "Такого фильтра нет."
+    )
+
+
+async def cmd_setkeywords(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await guard(update):
+        return
+    chat_id = update.effective_chat.id
+    if len(context.args) < 1:
+        await update.message.reply_text(
+            "Использование: /setkeywords имя_фильтра слово1,слово2,...\n"
+            "Объявления с этими словами в заголовке не будут присылаться. "
+            "Чтобы очистить список: /setkeywords имя_фильтра -"
+        )
+        return
+    name = context.args[0]
+    raw = " ".join(context.args[1:]).strip()
+    keywords = "" if raw in ("-", "") else raw
+    ok = db.set_exclude_keywords(chat_id, name, keywords)
+    if not ok:
+        await update.message.reply_text("Такого фильтра нет.")
+        return
+    await update.message.reply_text(
+        "Стоп-слова очищены." if not keywords else f"Буду скрывать объявления со словами: {keywords}"
+    )
+
+
+async def cmd_setprice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await guard(update):
+        return
+    chat_id = update.effective_chat.id
+    if len(context.args) < 3:
+        await update.message.reply_text(
+            "Использование: /setprice имя_фильтра мин макс (0 — без ограничения)"
+        )
+        return
+    name = context.args[0]
+    try:
+        price_min = int(context.args[1])
+        price_max = int(context.args[2])
+    except ValueError:
+        await update.message.reply_text("Мин/макс должны быть числами.")
+        return
+    if price_min < 0 or price_max < 0:
+        await update.message.reply_text("Цена не может быть отрицательной.")
+        return
+    if price_max and price_min > price_max:
+        await update.message.reply_text("Минимум больше максимума.")
+        return
+    ok = db.set_price_range(chat_id, name, price_min, price_max)
+    if not ok:
+        await update.message.reply_text("Такого фильтра нет.")
+        return
+    lo, hi = price_min or "0", price_max or "∞"
+    await update.message.reply_text(f"Диапазон цены: {lo}–{hi} ₽")
+
+
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await guard(update):
+        return
+    chat_id = update.effective_chat.id
+    items = db.list_filters(chat_id)
+    if not items:
+        await update.message.reply_text("Фильтров пока нет. Добавь: /addfilter")
+        return
+    now = time.time()
+    lines = []
+    for f in items:
+        if not f.active:
+            due = "на паузе"
+        else:
+            remaining = f.interval_minutes * 60 - (now - f.last_checked_at)
+            due = "вот-вот" if remaining <= 0 else f"через {int(remaining // 60)} мин"
+        lines.append(f"• {html.escape(f.name)} — следующая проверка: {due}")
+    await update.message.reply_html("\n".join(lines))
+
+
+async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if ADMIN_CHAT_ID is None or update.effective_chat.id != ADMIN_CHAT_ID:
+        return
+    text = " ".join(context.args)
+    if not text:
+        await update.message.reply_text("Использование: /broadcast текст сообщения")
+        return
+    chat_ids = db.list_chat_ids()
+    sent = 0
+    for chat_id in chat_ids:
+        try:
+            await context.bot.send_message(chat_id=chat_id, text=f"📢 {text}")
+            sent += 1
+        except Exception:
+            logger.warning("broadcast failed for chat_id=%s", chat_id)
+        await asyncio.sleep(0.1)
+    await update.message.reply_text(f"Разослано в {sent}/{len(chat_ids)} чатов.")
+
+
 async def cmd_check(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await guard(update):
         return
@@ -506,13 +699,19 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(conv)
     app.add_handler(CommandHandler("myfilters", cmd_myfilters))
+    app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("pause", cmd_pause))
     app.add_handler(CommandHandler("resume", cmd_resume))
     app.add_handler(CommandHandler("removefilter", cmd_removefilter))
     app.add_handler(CommandHandler("setinterval", cmd_setinterval))
+    app.add_handler(CommandHandler("renamefilter", cmd_renamefilter))
+    app.add_handler(CommandHandler("seturl", cmd_seturl))
+    app.add_handler(CommandHandler("setkeywords", cmd_setkeywords))
+    app.add_handler(CommandHandler("setprice", cmd_setprice))
     app.add_handler(CommandHandler("check", cmd_check))
     app.add_handler(CommandHandler("checkall", cmd_checkall))
     app.add_handler(CommandHandler("stats", cmd_stats))
+    app.add_handler(CommandHandler("broadcast", cmd_broadcast))
     app.add_handler(CallbackQueryHandler(on_button))
     app.add_handler(MessageHandler(filters.COMMAND, on_unknown))
 

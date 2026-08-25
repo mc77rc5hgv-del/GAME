@@ -132,11 +132,41 @@ def parse_via_data_marker(html_text: str) -> list[Listing]:
         price_match = re.search(r'data-marker="item-price"[^>]*>\s*([\d\s ]+)', window)
         price = re.sub(r"[\s ]", "", price_match.group(1)) if price_match else ""
 
+        image_match = re.search(r'<img[^>]+src="(https://[^"]+)"', window)
+        image = image_match.group(1) if image_match else ""
+
         if title and url:
-            listings.append(Listing(id=item_id, title=title, url=url, price=price))
+            listings.append(Listing(id=item_id, title=title, url=url, price=price, image=image))
     return listings
 
 
 def extract_item_id(url: str) -> str | None:
     match = ITEM_ID_RE.search(url)
     return match.group(1) if match else None
+
+
+def apply_client_filters(
+    listings: list[Listing],
+    exclude_keywords: list[str] | None = None,
+    price_min: int = 0,
+    price_max: int = 0,
+) -> list[Listing]:
+    """Extra filtering on top of whatever the Avito search URL already does:
+    drop listings whose title contains a blacklisted word, or whose price
+    falls outside [price_min, price_max] (0 = no bound on that side).
+    Listings with no parsed price pass any price bound (can't tell).
+    """
+    exclude_keywords = [w.lower() for w in (exclude_keywords or []) if w]
+    result = []
+    for item in listings:
+        title_lower = item.title.lower()
+        if any(word in title_lower for word in exclude_keywords):
+            continue
+        if item.price.isdigit():
+            price = int(item.price)
+            if price_min and price < price_min:
+                continue
+            if price_max and price > price_max:
+                continue
+        result.append(item)
+    return result

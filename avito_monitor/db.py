@@ -39,6 +39,15 @@ CREATE TABLE IF NOT EXISTS seen_items (
 CREATE INDEX IF NOT EXISTS idx_seen_items_filter ON seen_items(filter_id);
 """
 
+# Columns added after the initial release. Each is applied with a plain
+# ALTER TABLE if missing, so existing bot.db files upgrade in place.
+MIGRATIONS: list[tuple[str, str]] = [
+    ("exclude_keywords", "ALTER TABLE filters ADD COLUMN exclude_keywords TEXT NOT NULL DEFAULT ''"),
+    ("price_min", "ALTER TABLE filters ADD COLUMN price_min INTEGER NOT NULL DEFAULT 0"),
+    ("price_max", "ALTER TABLE filters ADD COLUMN price_max INTEGER NOT NULL DEFAULT 0"),
+    ("auto_paused", "ALTER TABLE filters ADD COLUMN auto_paused INTEGER NOT NULL DEFAULT 0"),
+]
+
 MAX_SEEN_PER_FILTER = 500
 
 
@@ -56,6 +65,10 @@ class Filter:
     consecutive_failures: int
     last_alert_at: float
     created_at: float
+    exclude_keywords: str = ""
+    price_min: int = 0
+    price_max: int = 0
+    auto_paused: bool = False
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Filter":
@@ -72,7 +85,14 @@ class Filter:
             consecutive_failures=row["consecutive_failures"],
             last_alert_at=row["last_alert_at"],
             created_at=row["created_at"],
+            exclude_keywords=row["exclude_keywords"],
+            price_min=row["price_min"],
+            price_max=row["price_max"],
+            auto_paused=bool(row["auto_paused"]),
         )
+
+    def exclude_keyword_list(self) -> list[str]:
+        return [w.strip() for w in self.exclude_keywords.split(",") if w.strip()]
 
 
 class Database:
@@ -81,6 +101,10 @@ class Database:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+            existing = {row["name"] for row in conn.execute("PRAGMA table_info(filters)")}
+            for column, statement in MIGRATIONS:
+                if column not in existing:
+                    conn.execute(statement)
 
     @contextmanager
     def _connect(self):
@@ -156,10 +180,17 @@ class Database:
 
     def set_active(self, chat_id: int, name: str, active: bool) -> bool:
         with self._connect() as conn:
-            cur = conn.execute(
-                "UPDATE filters SET active = ? WHERE chat_id = ? AND name = ?",
-                (1 if active else 0, chat_id, name),
-            )
+            if active:
+                cur = conn.execute(
+                    "UPDATE filters SET active = 1, auto_paused = 0, consecutive_failures = 0 "
+                    "WHERE chat_id = ? AND name = ?",
+                    (chat_id, name),
+                )
+            else:
+                cur = conn.execute(
+                    "UPDATE filters SET active = 0 WHERE chat_id = ? AND name = ?",
+                    (chat_id, name),
+                )
             return cur.rowcount > 0
 
     def set_interval(self, chat_id: int, name: str, minutes: int) -> bool:
@@ -169,6 +200,49 @@ class Database:
                 (minutes, chat_id, name),
             )
             return cur.rowcount > 0
+
+    def set_url(self, chat_id: int, name: str, url: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE filters SET url = ? WHERE chat_id = ? AND name = ?",
+                (url, chat_id, name),
+            )
+            return cur.rowcount > 0
+
+    def rename_filter(self, chat_id: int, name: str, new_name: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE filters SET name = ? WHERE chat_id = ? AND name = ?",
+                (new_name, chat_id, name),
+            )
+            return cur.rowcount > 0
+
+    def set_exclude_keywords(self, chat_id: int, name: str, keywords: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE filters SET exclude_keywords = ? WHERE chat_id = ? AND name = ?",
+                (keywords, chat_id, name),
+            )
+            return cur.rowcount > 0
+
+    def set_price_range(self, chat_id: int, name: str, price_min: int, price_max: int) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE filters SET price_min = ?, price_max = ? WHERE chat_id = ? AND name = ?",
+                (price_min, price_max, chat_id, name),
+            )
+            return cur.rowcount > 0
+
+    def set_auto_paused(self, filter_id: int, auto_paused: bool) -> None:
+        with self._connect() as conn:
+            if auto_paused:
+                conn.execute(
+                    "UPDATE filters SET active = 0, auto_paused = 1 WHERE id = ?", (filter_id,)
+                )
+            else:
+                conn.execute(
+                    "UPDATE filters SET auto_paused = 0 WHERE id = ?", (filter_id,)
+                )
 
     def mark_checked(
         self,
@@ -230,6 +304,11 @@ class Database:
                 """,
                 (filter_id, filter_id, MAX_SEEN_PER_FILTER),
             )
+
+    def list_chat_ids(self) -> list[int]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT DISTINCT chat_id FROM filters").fetchall()
+            return [r["chat_id"] for r in rows]
 
     # -- global stats ----------------------------------------------------
 
